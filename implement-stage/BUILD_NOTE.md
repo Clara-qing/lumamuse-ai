@@ -14,7 +14,9 @@
 | F9 | Reference-image palette clustering and style features | `pnpm test` | MUST | ✅ |
 | F10 | Deploy reference-analysis upgrade | `pnpm build` | SHOULD | ✅ |
 | F11 | Visible 478-point mesh and camera calibration | `pnpm test` | MUST | ✅ |
-| F12 | Deploy calibration upgrade | `pnpm build` | SHOULD | 进行中 |
+| F12 | Deploy calibration upgrade | `pnpm build` | SHOULD | ✅ |
+| F13 | Browser E2E: style to real face tracking to coaching | `pnpm test:e2e` | MUST | ✅ |
+| F14 | Final verified deployment | `pnpm build` | SHOULD | 进行中 |
 
 ## Run record
 
@@ -31,6 +33,8 @@
 - F9: `pnpm test`, exit 0; deterministic three-color clustering, temperature/contrast inference, intensity recommendation, and fallback covered by three unit tests.
 - F10: reference-analysis version deployed successfully to the private Sites URL.
 - F11: `pnpm test`, exit 0; optional face tesselation, scale/centering readiness, acceptance gate, and four calibration unit tests present.
+- F12: visible-mesh and calibration version deployed successfully to the private Sites URL.
+- F13: `pnpm test:e2e`, exit 0; headless Chrome consumed a fake-camera Y4M made from MediaPipe's portrait asset, reached 478-point tracking and ready calibration, unlocked acceptance, and entered the first coaching step.
 
 ## Deferred
 

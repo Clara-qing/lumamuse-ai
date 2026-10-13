@@ -27,6 +27,7 @@
 | A-022 | Image-analysis failure | Decode, canvas, or empty-sample failure uses the neutral daily palette at 55% and is visibly labelled as a default rather than a successful analysis | semantic | default |
 | A-023 | Visible 3D evidence | In try-on, users can toggle the MediaPipe face tesselation; its 2D projection uses the same 478 landmarks as makeup and uses z depth to vary line opacity/weight rather than drawing a decorative mesh | semantic | default |
 | A-024 | Camera calibration | Estimate readiness from face width and nose position: closer below 0.22 width, farther above 0.75, then recenter outside x 0.30–0.70 (distance takes priority). Real-camera users must reach ready before accepting; losing the face resets readiness. Model fallback bypasses calibration | semantic | default |
+| A-025 | End-to-end camera verification | Use `/usr/bin/google-chrome`, PATH-provided ffmpeg, network access to MediaPipe's public portrait plus runtime model/WASM assets, fake camera permission, and a temporary Y4M loop; verify real tracking and satisfaction-to-coaching without shipping the portrait | interface | default |
 
 ## Notes
 
