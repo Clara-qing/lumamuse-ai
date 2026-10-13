@@ -9,6 +9,8 @@ import {
   useState,
 } from "react";
 import FaceMeshCanvas, { MeshStatus } from "./FaceMeshCanvas";
+import { extractReferenceAnalysis } from "./makeupAnalysis";
+import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
 
 type TemplateKey = "daily" | "smoky" | "contour";
 type Stage = "upload" | "design" | "tryon" | "coach" | "finish";
@@ -132,7 +134,7 @@ const templates: Record<
 };
 
 const defaultPalette = ["#b97872", "#6f4543", "#e7c0ad"];
-function dominantColor(file: File): Promise<string> {
+function analyzeReferenceImage(file: File): Promise<ReferenceAnalysis> {
   return new Promise((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -142,29 +144,18 @@ function dominantColor(file: File): Promise<string> {
       canvas.height = 30;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
-        resolve(defaultPalette[0]);
+        resolve(extractReferenceAnalysis([]));
         return;
       }
       ctx.drawImage(img, 0, 0, 30, 30);
       const d = ctx.getImageData(0, 0, 30, 30).data;
-      let r = 0,
-        g = 0,
-        b = 0,
-        n = 0;
-      for (let i = 0; i < d.length; i += 20) {
-        if (d[i + 3] > 100) {
-          r += d[i];
-          g += d[i + 1];
-          b += d[i + 2];
-          n++;
-        }
-      }
+      const pixels: RGB[] = [];
+      for (let i = 0; i < d.length; i += 16)
+        if (d[i + 3] > 100) pixels.push([d[i], d[i + 1], d[i + 2]]);
       URL.revokeObjectURL(url);
-      resolve(
-        `#${[r / n, g / n, b / n].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`,
-      );
+      resolve(extractReferenceAnalysis(pixels));
     };
-    img.onerror = () => resolve(defaultPalette[0]);
+    img.onerror = () => resolve(extractReferenceAnalysis([]));
     img.src = url;
   });
 }
@@ -196,7 +187,10 @@ export default function MirrorMateDemo() {
     [palette, setPalette] = useState(defaultPalette),
     [templateKey, setTemplateKey] = useState<TemplateKey>("daily"),
     [prompt, setPrompt] = useState("低饱和、干净、日常通勤"),
+    [promptDirty, setPromptDirty] = useState(false),
     [intensity, setIntensity] = useState(55),
+    [referenceAnalysis, setReferenceAnalysis] =
+      useState<ReferenceAnalysis | null>(null),
     [step, setStep] = useState(0),
     [camera, setCamera] = useState(false),
     [cameraError, setCameraError] = useState(""),
@@ -231,9 +225,21 @@ export default function MirrorMateDemo() {
     if (reference) URL.revokeObjectURL(reference);
     const url = URL.createObjectURL(file);
     setReference(url);
-    const c = await dominantColor(file);
-    setPalette([c, shift(c, -0.22), shift(c, 0.32)]);
-    setEvents(["范本仅在本机内存中读取", "已提取参考图主色"]);
+    const analysis = await analyzeReferenceImage(file);
+    setReferenceAnalysis(analysis);
+    setPalette(analysis.palette);
+    setTemplateKey(analysis.suggestedTemplate);
+    setIntensity(analysis.suggestedIntensity);
+    setPrompt(
+      `${analysis.temperature}、${analysis.saturation}、${analysis.contrast}`,
+    );
+    setPromptDirty(false);
+    setEvents([
+      "范本仅在本机内存中读取",
+      analysis.fallback
+        ? "图片解析失败：使用安全默认妆效"
+        : `已聚类三组妆效色：${analysis.temperature} / ${analysis.contrast}`,
+    ]);
     setStage("design");
   }
   function interpretStyle(text = prompt) {
@@ -254,10 +260,11 @@ export default function MirrorMateDemo() {
         setPalette(["#c77c62", "#744334", "#efbea3"]);
       else setPalette(defaultPalette);
     }
+    setPromptDirty(false);
     setEvents((v) => [...v, `风格解释：${templates[key].name}`]);
   }
   async function startTryOn() {
-    interpretStyle();
+    if (promptDirty) interpretStyle();
     setCameraError("");
     try {
       const s = await navigator.mediaDevices.getUserMedia({
@@ -309,7 +316,9 @@ export default function MirrorMateDemo() {
     setPalette(defaultPalette);
     setTemplateKey("daily");
     setPrompt("低饱和、干净、日常通勤");
+    setPromptDirty(false);
     setIntensity(55);
+    setReferenceAnalysis(null);
     setCamera(false);
     setCameraError("");
     setMeshStatus("idle");
@@ -405,7 +414,10 @@ export default function MirrorMateDemo() {
                 描述想要的妆感
                 <textarea
                   value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+                  onChange={(e) => {
+                    setPrompt(e.target.value);
+                    setPromptDirty(true);
+                  }}
                   placeholder="例如：清冷灰棕、小烟熏、眼尾上扬"
                 />
               </label>
@@ -420,6 +432,7 @@ export default function MirrorMateDemo() {
                     key={x}
                     onClick={() => {
                       setPrompt(x);
+                      setPromptDirty(false);
                       interpretStyle(x);
                     }}
                   >
@@ -432,6 +445,20 @@ export default function MirrorMateDemo() {
                   <span key={c + i} style={{ background: c }} />
                 ))}
               </div>
+              {referenceAnalysis && (
+                <div className="analysis-tags" aria-label="参考图妆效分析">
+                  <span>
+                    {referenceAnalysis.fallback
+                      ? "默认妆效"
+                      : referenceAnalysis.temperature}
+                  </span>
+                  <span>{referenceAnalysis.saturation}</span>
+                  <span>{referenceAnalysis.contrast}</span>
+                  <small>
+                    建议浓度 {referenceAnalysis.suggestedIntensity}%
+                  </small>
+                </div>
+              )}
               <button
                 className="interpret-button"
                 onClick={() => interpretStyle()}
@@ -446,7 +473,10 @@ export default function MirrorMateDemo() {
               <button
                 key={key}
                 className={`template-card ${templateKey === key ? "selected" : ""}`}
-                onClick={() => setTemplateKey(key)}
+                onClick={() => {
+                  setTemplateKey(key);
+                  setPromptDirty(false);
+                }}
               >
                 <span>{templates[key].area}</span>
                 <b>{templates[key].name}</b>

@@ -10,7 +10,9 @@
 | F5 | Dense 3D face landmark pipeline with fallback | `pnpm test` | MUST | ✅ |
 | F6 | Reference/text style generation and live try-on controls | `pnpm test` | MUST | ✅ |
 | F7 | Satisfaction gate into face-aligned coaching | `pnpm test` | MUST | ✅ |
-| F8 | Updated deployment | `pnpm build` | SHOULD | 进行中 |
+| F8 | Updated deployment | `pnpm build` | SHOULD | ✅ |
+| F9 | Reference-image palette clustering and style features | `pnpm test` | MUST | ✅ |
+| F10 | Deploy reference-analysis upgrade | `pnpm build` | SHOULD | 进行中 |
 
 ## Run record
 
@@ -23,6 +25,8 @@
 - F5: `pnpm test`, exit 0; MediaPipe 478-landmark pipeline, live canvas renderer, camera/model fallback present. Official WASM and model asset endpoints returned HTTP 200.
 - F6: `pnpm test`, exit 0; local reference palette, style prompt mapping, preset switching, palette and intensity controls present.
 - F7: `pnpm test`, exit 0; try-on acceptance is required before face-aligned teaching and the accepted intensity is carried into the session recap.
+- F8: live face-mesh version deployed successfully to the private Sites URL.
+- F9: `pnpm test`, exit 0; deterministic three-color clustering, temperature/contrast inference, intensity recommendation, and fallback covered by three unit tests.
 
 ## Deferred
 
