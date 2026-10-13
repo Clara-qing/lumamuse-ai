@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import FaceMeshCanvas, { MeshStatus } from "./FaceMeshCanvas";
+import type { TrackingQuality } from "./FaceMeshCanvas";
 import { extractReferenceAnalysis } from "./makeupAnalysis";
 import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
 
@@ -180,6 +181,15 @@ function statusCopy(status: MeshStatus) {
     fallback: "模型离线，已使用示例脸降级",
   }[status];
 }
+function qualityCopy(quality: TrackingQuality) {
+  return {
+    waiting: "等待面部定位",
+    closer: "请靠近一点",
+    farther: "请离远一点",
+    center: "请回到镜面中央",
+    ready: "距离与位置合适",
+  }[quality];
+}
 
 export default function MirrorMateDemo() {
   const [stage, setStage] = useState<Stage>("upload"),
@@ -195,6 +205,9 @@ export default function MirrorMateDemo() {
     [camera, setCamera] = useState(false),
     [cameraError, setCameraError] = useState(""),
     [meshStatus, setMeshStatus] = useState<MeshStatus>("idle"),
+    [trackingQuality, setTrackingQuality] =
+      useState<TrackingQuality>("waiting"),
+    [showMesh, setShowMesh] = useState(false),
     [rescue, setRescue] = useState(false),
     [events, setEvents] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null),
@@ -207,6 +220,10 @@ export default function MirrorMateDemo() {
     [palette],
   );
   const onMeshStatus = useCallback((s: MeshStatus) => setMeshStatus(s), []);
+  const onTrackingQuality = useCallback(
+    (q: TrackingQuality) => setTrackingQuality(q),
+    [],
+  );
   useEffect(() => {
     if (videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
@@ -322,6 +339,8 @@ export default function MirrorMateDemo() {
     setCamera(false);
     setCameraError("");
     setMeshStatus("idle");
+    setTrackingQuality("waiting");
+    setShowMesh(false);
     setStage("upload");
     setStep(0);
     setRescue(false);
@@ -510,6 +529,20 @@ export default function MirrorMateDemo() {
                 <span>在本设备实时计算，不上传视频帧</span>
               </div>
             </div>
+            <div className={`calibration ${trackingQuality}`}>
+              <b>{qualityCopy(trackingQuality)}</b>
+              <span>
+                {trackingQuality === "ready"
+                  ? "可以确认妆效并进入教学"
+                  : "调整后定位会更稳定"}
+              </span>
+            </div>
+            <button
+              className={`mesh-toggle ${showMesh ? "active" : ""}`}
+              onClick={() => setShowMesh((v) => !v)}
+            >
+              {showMesh ? "隐藏 3D 网格" : "查看 3D 面部网格"}
+            </button>
             <label className="intensity-control">
               <span>
                 妆效浓度 <b>{intensity}%</b>
@@ -538,7 +571,15 @@ export default function MirrorMateDemo() {
             >
               换一个风格
             </button>
-            <button className="primary wide accept-look" onClick={acceptLook}>
+            <button
+              className="primary wide accept-look"
+              onClick={acceptLook}
+              disabled={
+                camera &&
+                meshStatus !== "fallback" &&
+                trackingQuality !== "ready"
+              }
+            >
               我满意，用这个妆效教我
             </button>
             <p className="prototype-note">
@@ -555,6 +596,8 @@ export default function MirrorMateDemo() {
             intensity={intensity}
             look={templateKey}
             mode="tryon"
+            showMesh={showMesh}
+            onQuality={onTrackingQuality}
           />
           {cameraError && (
             <p className="camera-error tryon-error">{cameraError}</p>
@@ -611,6 +654,8 @@ export default function MirrorMateDemo() {
               look={templateKey}
               teachingZone={current.zone}
               mode="teach"
+              showMesh={false}
+              onQuality={onTrackingQuality}
             />
           </div>
           <aside className="instruction-panel">
@@ -726,6 +771,8 @@ function LiveMirror({
   look,
   teachingZone,
   mode,
+  showMesh,
+  onQuality,
 }: {
   camera: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -736,6 +783,8 @@ function LiveMirror({
   look: TemplateKey;
   teachingZone?: string;
   mode: "tryon" | "teach";
+  showMesh: boolean;
+  onQuality: (q: TrackingQuality) => void;
 }) {
   const fallback = !camera || meshStatus === "fallback";
   return (
@@ -757,7 +806,9 @@ function LiveMirror({
         look={look}
         teachingZone={teachingZone}
         mode={mode}
+        showMesh={showMesh}
         onStatus={onMeshStatus}
+        onQuality={onQuality}
       />
       <div className="mirror-caption">
         <span>{mode === "tryon" ? "LIVE LOOK" : "LIVE COACH"}</span>

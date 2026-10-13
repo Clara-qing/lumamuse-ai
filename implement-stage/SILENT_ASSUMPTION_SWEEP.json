@@ -1,7 +1,7 @@
 {
   "review_independence": "same-family",
   "acceptance_status": "provisional",
-  "rounds": 4,
+  "rounds": 6,
   "first_round": { "semantic_undeclared": 2, "stale_rows": 3, "verdict": "gaps" },
   "fixes": [
     "Declared bounded keyword mapping, defaults, intensity range, and palette editing",
@@ -12,5 +12,7 @@
   ],
   "second_round": { "undeclared": [], "stale_rows": [], "semantic_undeclared": 0, "verdict": "clean" },
   "reference_analysis_round": { "semantic_undeclared": 3, "verdict": "gaps" },
-  "reference_analysis_fix_round": { "undeclared": [], "stale_rows": [], "semantic_undeclared": 0, "verdict": "clean" }
+  "reference_analysis_fix_round": { "undeclared": [], "stale_rows": [], "semantic_undeclared": 0, "verdict": "clean" },
+  "mesh_calibration_round": { "semantic_undeclared": 1, "stale_rows": 2, "verdict": "gaps" },
+  "mesh_calibration_fix_round": { "undeclared": [], "stale_rows": [], "semantic_undeclared": 0, "verdict": "clean" }
 }

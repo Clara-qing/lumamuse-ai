@@ -6,6 +6,9 @@ import {
   FilesetResolver,
   NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
+import { trackingQuality } from "./trackingQuality";
+import type { TrackingQuality } from "./trackingQuality";
+export type { TrackingQuality } from "./trackingQuality";
 
 export type MeshStatus =
   | "idle"
@@ -22,7 +25,9 @@ type Props = {
   look: "daily" | "smoky" | "contour";
   teachingZone?: string;
   mode: "tryon" | "teach";
+  showMesh?: boolean;
   onStatus: (status: MeshStatus) => void;
+  onQuality?: (quality: TrackingQuality) => void;
 };
 
 const MODEL =
@@ -79,6 +84,23 @@ function polygon(
   ctx.restore();
 }
 
+function drawMesh(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
+  ctx.save();
+  FaceLandmarker.FACE_LANDMARKS_TESSELATION.forEach(({ start, end }) => {
+    const a = points[start],
+      b = points[end];
+    const depth = ((a.z || 0) + (b.z || 0)) / 2;
+    const alpha = Math.max(0.1, Math.min(0.52, 0.24 - depth * 1.8));
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = Math.max(0.45, Math.min(1.25, 0.7 - depth * 2));
+    ctx.beginPath();
+    ctx.moveTo(a.x * ctx.canvas.width, a.y * ctx.canvas.height);
+    ctx.lineTo(b.x * ctx.canvas.width, b.y * ctx.canvas.height);
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
 function renderLook(
   ctx: CanvasRenderingContext2D,
   points: NormalizedLandmark[],
@@ -101,10 +123,22 @@ function renderLook(
       const eyeZones: Record<string, [number[], number[]]> = {
         base: [LEFT_EYE, RIGHT_EYE],
         soften: [LEFT_EYE, RIGHT_EYE],
-        outer: [[33, 246, 161, 160, 159, 133, 155, 154], [362, 398, 384, 385, 386, 263, 249, 390]],
-        liner: [[33, 7, 163, 144, 145, 153, 154, 155, 133], [362, 382, 381, 380, 374, 373, 390, 249, 263]],
-        lower: [[33, 7, 163, 144, 145, 153, 154, 155, 133], [362, 382, 381, 380, 374, 373, 390, 249, 263]],
-        highlight: [[159, 158, 157, 173, 133, 155, 154, 153], [386, 387, 388, 466, 263, 249, 390, 373]],
+        outer: [
+          [33, 246, 161, 160, 159, 133, 155, 154],
+          [362, 398, 384, 385, 386, 263, 249, 390],
+        ],
+        liner: [
+          [33, 7, 163, 144, 145, 153, 154, 155, 133],
+          [362, 382, 381, 380, 374, 373, 390, 249, 263],
+        ],
+        lower: [
+          [33, 7, 163, 144, 145, 153, 154, 155, 133],
+          [362, 382, 381, 380, 374, 373, 390, 249, 263],
+        ],
+        highlight: [
+          [159, 158, 157, 173, 133, 155, 154, 153],
+          [386, 387, 388, 466, 263, 249, 390, 373],
+        ],
       };
       const [left, right] = eyeZones[teachingZone || "base"] || eyeZones.base;
       polygon(ctx, points, left, rgba(palette[0], a * 0.72), 3, guide);
@@ -113,7 +147,11 @@ function renderLook(
     const nose = points[1];
     ctx.fillStyle = "rgba(255,255,255,.92)";
     ctx.font = "700 13px Arial";
-    ctx.fillText("当前步骤区域", nose.x * ctx.canvas.width - 44, nose.y * ctx.canvas.height - 36);
+    ctx.fillText(
+      "当前步骤区域",
+      nose.x * ctx.canvas.width - 44,
+      nose.y * ctx.canvas.height - 36,
+    );
     return;
   }
   if (look !== "contour") {
@@ -153,13 +191,22 @@ export default function FaceMeshCanvas({
   look,
   teachingZone,
   mode,
+  showMesh = false,
   onStatus,
+  onQuality,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const latest = useRef({ palette, intensity, look, teachingZone, mode });
+  const latest = useRef({
+    palette,
+    intensity,
+    look,
+    teachingZone,
+    mode,
+    showMesh,
+  });
   useEffect(() => {
-    latest.current = { palette, intensity, look, teachingZone, mode };
-  }, [palette, intensity, look, teachingZone, mode]);
+    latest.current = { palette, intensity, look, teachingZone, mode, showMesh };
+  }, [palette, intensity, look, teachingZone, mode, showMesh]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -168,6 +215,7 @@ export default function FaceMeshCanvas({
     let landmarker: FaceLandmarker | null = null;
     let lastVideoTime = -1;
     let lastStatus: MeshStatus = "idle";
+    let lastQuality: TrackingQuality = "waiting";
     const report = (status: MeshStatus) => {
       if (status !== lastStatus) {
         lastStatus = status;
@@ -212,6 +260,12 @@ export default function FaceMeshCanvas({
           if (points && ctx) {
             report("tracking");
             const s = latest.current;
+            const quality = trackingQuality(points);
+            if (quality !== lastQuality) {
+              lastQuality = quality;
+              onQuality?.(quality);
+            }
+            if (s.showMesh) drawMesh(ctx, points);
             renderLook(
               ctx,
               points,
@@ -221,7 +275,13 @@ export default function FaceMeshCanvas({
               s.mode,
               s.teachingZone,
             );
-          } else report("no-face");
+          } else {
+            report("no-face");
+            if (lastQuality !== "waiting") {
+              lastQuality = "waiting";
+              onQuality?.("waiting");
+            }
+          }
         }
       }
       frame = requestAnimationFrame(loop);
@@ -233,7 +293,7 @@ export default function FaceMeshCanvas({
       cancelAnimationFrame(frame);
       landmarker?.close();
     };
-  }, [enabled, onStatus, videoRef]);
+  }, [enabled, onStatus, onQuality, videoRef]);
 
   return (
     <canvas

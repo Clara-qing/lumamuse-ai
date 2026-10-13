@@ -25,6 +25,8 @@
 | A-020 | Image-to-area inference | A finished reference image may suggest daily vs smoky contrast, but does not reliably prove contour intent; contour remains an explicit text/preset choice | semantic | default |
 | A-021 | Input precedence | Explicit template/preset selection wins; edited text is interpreted on try-on; otherwise the reference-image recommendation is preserved | semantic | default |
 | A-022 | Image-analysis failure | Decode, canvas, or empty-sample failure uses the neutral daily palette at 55% and is visibly labelled as a default rather than a successful analysis | semantic | default |
+| A-023 | Visible 3D evidence | In try-on, users can toggle the MediaPipe face tesselation; its 2D projection uses the same 478 landmarks as makeup and uses z depth to vary line opacity/weight rather than drawing a decorative mesh | semantic | default |
+| A-024 | Camera calibration | Estimate readiness from face width and nose position: closer below 0.22 width, farther above 0.75, then recenter outside x 0.30–0.70 (distance takes priority). Real-camera users must reach ready before accepting; losing the face resets readiness. Model fallback bypasses calibration | semantic | default |
 
 ## Notes
 
