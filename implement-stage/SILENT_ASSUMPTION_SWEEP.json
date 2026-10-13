@@ -1,13 +1,14 @@
 {
   "review_independence": "same-family",
   "acceptance_status": "provisional",
-  "reviewer": "inclusion_business_lens",
-  "resolved_findings": [
-    "Built-in sample path is labelled",
-    "Camera permission requires an explicit click",
-    "Voice interaction is labelled as simulated",
-    "AR regions are labelled as fixed prototype overlays",
-    "Reset clears transient state and cancels speech"
+  "rounds": 2,
+  "first_round": { "semantic_undeclared": 2, "stale_rows": 3, "verdict": "gaps" },
+  "fixes": [
+    "Declared bounded keyword mapping, defaults, intensity range, and palette editing",
+    "Made teaching polygons change with the active eye or contour step",
+    "Kept the accepted try-on intensity unchanged during teaching",
+    "Made model-load failure visibly fall back to the deterministic demo face",
+    "Updated speech and asset-hosting ledger rows to match the implementation"
   ],
-  "remaining_boundary": "No trained face-keypoint adaptation or automatic makeup-error classifier is claimed in this MVP."
+  "second_round": { "undeclared": [], "stale_rows": [], "semantic_undeclared": 0, "verdict": "clean" }
 }

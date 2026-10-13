@@ -11,14 +11,16 @@
 | A-006 | Language and audience | Chinese mobile-first interface for competition judges and novice makeup users | interface | default |
 | A-007 | Built-in reference | The no-upload path uses a clearly labelled built-in sample | interface | default |
 | A-008 | Camera permission | Camera starts only after an explicit user action | interface | default |
-| A-009 | Voice control | Voice control is visibly labelled as a simulated interaction in this prototype | semantic | default |
+| A-009 | Voice interaction | Use browser speech synthesis to read each step; no speech-recognition control is claimed | semantic | default |
 | A-010 | AR alignment | Use MediaPipe Face Landmarker dense 3D landmarks to anchor eye, cheek, lip, and contour polygons in real time | semantic | default |
 | A-011 | Session reset | Reset cancels speech and clears the reference, palette, template, camera state, and transient feedback | interface | default |
 | A-012 | Meaning of “3D modeling” in a browser MVP | A 478-landmark metric face mesh with x/y/z coordinates and pose-following overlays; not a textured photogrammetric head model | semantic | default |
 | A-013 | Open-ended style generation | Map reference palette plus user keywords onto bounded eye/blush/lip/contour parameters; clearly label it as a visual interpretation | semantic | default |
-| A-014 | Model delivery and degraded mode | Load MediaPipe WASM and the face-landmarker model from official Google-hosted assets; retain the deterministic demo face when offline or model loading fails | interface | default |
-| A-015 | When coaching begins | The user must explicitly mark the try-on result as satisfactory before the selected look becomes the teaching target | semantic | default |
-| A-016 | Try-on controls | Users can switch preset interpretation and adjust effect intensity before acceptance | interface | default |
+| A-014 | Model delivery and degraded mode | Load MediaPipe WASM from jsDelivr and the model from Google storage; show the deterministic demo face when camera access or model loading fails | interface | default |
+| A-015 | When coaching begins | The user must explicitly mark the try-on result as satisfactory; its palette, template, and exact intensity become the teaching target | semantic | default |
+| A-016 | Try-on controls | Users can switch preset interpretation, rebuild the three-shade palette from one swatch, and adjust effect intensity from 15–90% (default 55%) before acceptance | interface | default |
+| A-017 | Text-style interpretation | Recognize bounded Chinese keyword groups for contour, smoky, temperature, and color mood; unmatched descriptions fall back to the daily template and neutral rose palette | semantic | default |
+| A-018 | Step-specific spatial coaching | Eye steps use distinct full-eye, outer-corner, lash-line/lower-eye, and highlight landmark polygons; contour steps switch between cheek and jaw polygons | semantic | default |
 
 ## Notes
 
