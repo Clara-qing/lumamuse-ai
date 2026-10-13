@@ -1,0 +1,13 @@
+{
+  "review_independence": "same-family",
+  "acceptance_status": "provisional",
+  "reviewer": "inclusion_business_lens",
+  "resolved_findings": [
+    "Built-in sample path is labelled",
+    "Camera permission requires an explicit click",
+    "Voice interaction is labelled as simulated",
+    "AR regions are labelled as fixed prototype overlays",
+    "Reset clears transient state and cancels speech"
+  ],
+  "remaining_boundary": "No trained face-keypoint adaptation or automatic makeup-error classifier is claimed in this MVP."
+}
