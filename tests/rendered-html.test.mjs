@@ -20,5 +20,8 @@ test("server-renders the MirrorMate product shell", async () => {
   assert.match(html, /喜欢的妆/);
   assert.match(html, /本地隐私模式/);
   assert.match(html, /上传妆容范本/);
+  assert.match(html, /478 点实时定位/);
+  assert.match(html, /满意后再教学/);
+  assert.match(html, /用文字描述风格/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });

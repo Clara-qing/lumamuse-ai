@@ -1,10 +1,10 @@
 # Spec — MirrorMate makeup coaching demo
 
 ## Target
-Build a browser demo for a two-person competition team: a user provides a makeup reference, the app interprets it into a teachable eye-makeup or contour template, then guides practice through face-aligned visual overlays, concise coaching, recovery help, and a privacy-first ending.
+Build a browser demo for a two-person competition team: a user provides a makeup reference or style description, previews the generated look on a live dense face mesh, adjusts and accepts it, then receives face-aligned step-by-step coaching, recovery help, and a privacy-first ending.
 
 ## Inputs
-Reference image from local device, selected target area, selected style, optional live camera.
+Reference image from local device and/or a style description, selected target area, intensity, optional live camera.
 
 ## Outputs
 Interactive single-route site; all user media stays in browser memory. Deployment artifact produced by `pnpm build`.
@@ -16,5 +16,4 @@ Interactive single-route site; all user media stays in browser memory. Deploymen
 none (repository has no commit)
 
 ## Scope cuts
-No server upload, account, commerce, medical advice, beauty scoring, arbitrary tutorial reconstruction, or production-grade face/brush tracking. Reference parsing and visual feedback are explicitly presented as a competition demo.
-
+No server upload, account, commerce, medical advice, beauty scoring, arbitrary tutorial reconstruction, or brush tracking. The demo uses production MediaPipe face landmarks but heuristic makeup rendering and style interpretation.

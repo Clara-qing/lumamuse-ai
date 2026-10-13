@@ -12,10 +12,17 @@
 | A-007 | Built-in reference | The no-upload path uses a clearly labelled built-in sample | interface | default |
 | A-008 | Camera permission | Camera starts only after an explicit user action | interface | default |
 | A-009 | Voice control | Voice control is visibly labelled as a simulated interaction in this prototype | semantic | default |
-| A-010 | AR alignment | Teaching zones are fixed prototype overlays, not claimed as face-keypoint adaptation | semantic | default |
+| A-010 | AR alignment | Use MediaPipe Face Landmarker dense 3D landmarks to anchor eye, cheek, lip, and contour polygons in real time | semantic | default |
 | A-011 | Session reset | Reset cancels speech and clears the reference, palette, template, camera state, and transient feedback | interface | default |
+| A-012 | Meaning of “3D modeling” in a browser MVP | A 478-landmark metric face mesh with x/y/z coordinates and pose-following overlays; not a textured photogrammetric head model | semantic | default |
+| A-013 | Open-ended style generation | Map reference palette plus user keywords onto bounded eye/blush/lip/contour parameters; clearly label it as a visual interpretation | semantic | default |
+| A-014 | Model delivery and degraded mode | Load MediaPipe WASM and the face-landmarker model from official Google-hosted assets; retain the deterministic demo face when offline or model loading fails | interface | default |
+| A-015 | When coaching begins | The user must explicitly mark the try-on result as satisfactory before the selected look becomes the teaching target | semantic | default |
+| A-016 | Try-on controls | Users can switch preset interpretation and adjust effect intensity before acceptance | interface | default |
 
 ## Notes
 
 - **A-001** — Reliable reconstruction of application order from one finished-look image is not defensible in this timeframe. Template confirmation keeps the experience honest and reversible.
 - **A-003** — A labelled prototype feedback path is more credible than presenting simulated classification as a trained result.
+- **A-012** — Dense landmarks provide enough geometry for convincing pose-following makeup and instruction zones without claiming full head reconstruction.
+- **A-013** — A finished reference image does not contain ground-truth products or application order, so the generator produces an editable interpretation rather than asserting exact reconstruction.
