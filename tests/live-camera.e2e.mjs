@@ -34,6 +34,7 @@ try{
   await page.getByText("操作镜头 · 按箭头上妆").waitFor();
   await page.getByText("目标妆效 · 实时对照").waitFor();
   await page.getByText("镜面箭头从睫毛根部向上轻扫").waitFor();
+  await page.getByLabel("语音陪练").waitFor();
   assert.equal(
     await page.locator(".dual-mirror-stage .face-mesh-canvas").count(),
     2,

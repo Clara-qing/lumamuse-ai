@@ -15,6 +15,18 @@ import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
 
 type TemplateKey = "daily" | "smoky" | "contour";
 type Stage = "upload" | "design" | "tryon" | "coach" | "finish";
+type VoiceStatus = "idle" | "listening" | "unsupported";
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+};
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 type Step = {
   title: string;
   short: string;
@@ -222,11 +234,14 @@ export default function MirrorMateDemo() {
       useState<TrackingQuality>("waiting"),
     [showMesh, setShowMesh] = useState(false),
     [rescue, setRescue] = useState(false),
+    [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle"),
+    [voiceTranscript, setVoiceTranscript] = useState(""),
     [events, setEvents] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null),
     guideVideoRef = useRef<HTMLVideoElement>(null),
     previewVideoRef = useRef<HTMLVideoElement>(null),
     coachLandmarksRef = useRef<FaceLandmarks | null>(null),
+    recognitionRef = useRef<SpeechRecognitionLike | null>(null),
     streamRef = useRef<MediaStream | null>(null);
   const t = templates[templateKey],
     current = t.steps[step],
@@ -249,6 +264,7 @@ export default function MirrorMateDemo() {
   useEffect(
     () => () => {
       streamRef.current?.getTracks().forEach((x) => x.stop());
+      recognitionRef.current?.stop();
     },
     [],
   );
@@ -324,24 +340,106 @@ export default function MirrorMateDemo() {
     setStage("coach");
     setEvents((v) => [...v, `已确认妆效：${t.name}，浓度 ${intensity}%`]);
   }
-  function speak() {
+  function speakText(text: string) {
     if (!("speechSynthesis" in window)) return;
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(
-      `${current.title}。${current.instruction}`,
-    );
+    const u = new SpeechSynthesisUtterance(text);
     u.lang = "zh-CN";
     speechSynthesis.speak(u);
+  }
+  function speak() {
+    speakText(`${current.title}。${current.instruction}`);
+  }
+  function stopVoiceCoach() {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setVoiceStatus("idle");
+  }
+  function handleVoiceCommand(transcript: string) {
+    const cleaned = transcript.replace(/\s/g, "");
+    setVoiceTranscript(`你说：“${transcript}”`);
+    if (/上一步|返回/.test(cleaned)) {
+      if (step > 0) setStep(step - 1);
+      speakText(step > 0 ? "好的，回到上一步。" : "这已经是第一步。 ");
+      return;
+    }
+    if (/下一步|继续|完成/.test(cleaned)) {
+      if (step < t.steps.length - 1) {
+        next();
+        speakText(`好的，下一步是${t.steps[step + 1].title}。${t.steps[step + 1].instruction}`);
+      } else {
+        speakText("你已经完成全部步骤，可以点击完成练习查看复盘。 ");
+      }
+      return;
+    }
+    if (/慢一点|放慢/.test(cleaned)) {
+      speakText(`${current.title}。${current.instruction}。我再慢一点说：${directionCopy(current.zone)}。`);
+      return;
+    }
+    if (/再说一遍|重复|没听清/.test(cleaned)) {
+      speak();
+      return;
+    }
+    if (/救一下|出界|画错/.test(cleaned)) {
+      setRescue(true);
+      setEvents((v) => [...v, "语音求助：需要补救"]);
+      speakText("我来帮你补救。先停下，不要继续叠色，然后按补救卡完成一个小动作。 ");
+      return;
+    }
+    speakText(`我听到你说${transcript}。你可以说下一步、慢一点、再说一遍或救一下。`);
+  }
+  function startVoiceCoach() {
+    const browser = window as typeof window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
+    if (!Recognition) {
+      setVoiceStatus("unsupported");
+      setVoiceTranscript("当前浏览器未提供语音识别；仍可使用朗读和按钮。 ");
+      return;
+    }
+    recognitionRef.current?.stop();
+    const recognition = new Recognition();
+    recognition.lang = "zh-CN";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const transcript = event.results[event.results.length - 1]?.[0]?.transcript;
+      if (transcript) handleVoiceCommand(transcript);
+    };
+    recognition.onend = () => {
+      if (recognitionRef.current === recognition) setVoiceStatus("idle");
+    };
+    recognition.onerror = () => {
+      setVoiceStatus("idle");
+      setVoiceTranscript("没有听清，点击后可以重新接通。 ");
+    };
+    recognitionRef.current = recognition;
+    setVoiceStatus("listening");
+    setVoiceTranscript("已接通：可以说“下一步”“慢一点”“再说一遍”或“救一下”。");
+    try {
+      recognition.start();
+      speakText(`已接通语音陪练。当前是${current.title}。`);
+    } catch {
+      recognitionRef.current = null;
+      setVoiceStatus("idle");
+      setVoiceTranscript("暂时无法接通麦克风，请检查浏览器权限后重试。 ");
+    }
   }
   function next() {
     setRescue(false);
     if (step < t.steps.length - 1) {
       setStep(step + 1);
       setEvents((v) => [...v, `完成：${current.title}`]);
-    } else setStage("finish");
+    } else {
+      stopVoiceCoach();
+      setStage("finish");
+    }
   }
   function reset() {
     window.speechSynthesis?.cancel();
+    stopVoiceCoach();
     streamRef.current?.getTracks().forEach((x) => x.stop());
     streamRef.current = null;
     if (reference) URL.revokeObjectURL(reference);
@@ -719,6 +817,29 @@ export default function MirrorMateDemo() {
               <b>镜面箭头</b>
               {directionCopy(current.zone)}
             </p>
+            <div className={`voice-call ${voiceStatus}`} aria-label="语音陪练">
+              <div className="voice-avatar" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </div>
+              <div className="voice-copy">
+                <b>AI 语音陪练</b>
+                <span>
+                  {voiceStatus === "listening"
+                    ? "正在聆听，可随时打断"
+                    : voiceStatus === "unsupported"
+                      ? "此浏览器不支持语音识别"
+                      : "浏览器语音降级模式"}
+                </span>
+              </div>
+              {voiceStatus === "listening" ? (
+                <button className="voice-hangup" onClick={stopVoiceCoach}>挂断</button>
+              ) : (
+                <button className="voice-connect" onClick={startVoiceCoach}>接通</button>
+              )}
+              {voiceTranscript && <p className="voice-transcript">{voiceTranscript}</p>}
+            </div>
             {rescue ? (
               <div className="rescue-card">
                 <p>只先调整一个点</p>
