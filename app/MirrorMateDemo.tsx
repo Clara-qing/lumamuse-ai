@@ -8,8 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
-import FaceMeshCanvas, { MeshStatus } from "./FaceMeshCanvas";
-import type { TrackingQuality } from "./FaceMeshCanvas";
+import FaceMeshCanvas, { FaceMeshTracker, MeshStatus } from "./FaceMeshCanvas";
+import type { FaceLandmarks, TrackingQuality } from "./FaceMeshCanvas";
 import { extractReferenceAnalysis } from "./makeupAnalysis";
 import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
 
@@ -226,6 +226,7 @@ export default function MirrorMateDemo() {
   const videoRef = useRef<HTMLVideoElement>(null),
     guideVideoRef = useRef<HTMLVideoElement>(null),
     previewVideoRef = useRef<HTMLVideoElement>(null),
+    coachLandmarksRef = useRef<FaceLandmarks | null>(null),
     streamRef = useRef<MediaStream | null>(null);
   const t = templates[templateKey],
     current = t.steps[step],
@@ -622,6 +623,13 @@ export default function MirrorMateDemo() {
       )}
       {stage === "coach" && (
         <section className="coach-layout">
+          <FaceMeshTracker
+            videoRef={guideVideoRef}
+            enabled={camera}
+            landmarksRef={coachLandmarksRef}
+            onStatus={onMeshStatus}
+            onQuality={onTrackingQuality}
+          />
           <aside className="lesson-panel">
             <div>
               <p className="kicker">STEP 3 · 对镜跟练</p>
@@ -675,6 +683,7 @@ export default function MirrorMateDemo() {
               mode="teach"
               showMesh={false}
               brushDirection={current.zone}
+              landmarksRef={coachLandmarksRef}
               onQuality={onTrackingQuality}
             />
             </div>
@@ -692,6 +701,7 @@ export default function MirrorMateDemo() {
                 mode="tryon"
                 showMesh={false}
                 onQuality={onTrackingQuality}
+                landmarksRef={coachLandmarksRef}
               />
             </div>
           </div>
@@ -815,6 +825,7 @@ function LiveMirror({
   mode,
   showMesh,
   brushDirection,
+  landmarksRef,
   onQuality,
 }: {
   camera: boolean;
@@ -829,6 +840,7 @@ function LiveMirror({
   mode: "tryon" | "teach";
   showMesh: boolean;
   brushDirection?: string;
+  landmarksRef?: React.RefObject<FaceLandmarks | null>;
   onQuality: (q: TrackingQuality) => void;
 }) {
   const fallback = !camera || meshStatus === "fallback";
@@ -859,6 +871,7 @@ function LiveMirror({
         mode={mode}
         showMesh={showMesh}
         brushDirection={brushDirection}
+        landmarksRef={landmarksRef}
         onStatus={onMeshStatus}
         onQuality={onQuality}
       />

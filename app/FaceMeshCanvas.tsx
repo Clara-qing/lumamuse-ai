@@ -9,6 +9,7 @@ import {
 import { trackingQuality } from "./trackingQuality";
 import type { TrackingQuality } from "./trackingQuality";
 export type { TrackingQuality } from "./trackingQuality";
+export type FaceLandmarks = NormalizedLandmark[];
 
 export type MeshStatus =
   | "idle"
@@ -27,6 +28,7 @@ type Props = {
   mode: "tryon" | "teach";
   showMesh?: boolean;
   brushDirection?: string;
+  landmarksRef?: RefObject<FaceLandmarks | null>;
   onStatus: (status: MeshStatus) => void;
   onQuality?: (quality: TrackingQuality) => void;
 };
@@ -272,6 +274,7 @@ export default function FaceMeshCanvas({
   mode,
   showMesh = false,
   brushDirection,
+  landmarksRef,
   onStatus,
   onQuality,
 }: Props) {
@@ -290,7 +293,7 @@ export default function FaceMeshCanvas({
   }, [palette, intensity, look, teachingZone, mode, showMesh, brushDirection]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || landmarksRef) return;
     let cancelled = false;
     let frame = 0;
     let landmarker: FaceLandmarker | null = null;
@@ -379,7 +382,44 @@ export default function FaceMeshCanvas({
       cancelAnimationFrame(frame);
       landmarker?.close();
     };
-  }, [enabled, onStatus, onQuality, videoRef]);
+  }, [enabled, landmarksRef, onStatus, onQuality, videoRef]);
+
+  useEffect(() => {
+    if (!enabled || !landmarksRef) return;
+    let cancelled = false;
+    let frame = 0;
+    let lastVideoTime = -1;
+    const loop = () => {
+      if (cancelled) return;
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (video && canvas && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        const width = video.videoWidth || 640;
+        const height = video.videoHeight || 480;
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        const ctx = canvas.getContext("2d");
+        ctx?.clearRect(0, 0, width, height);
+        ctx?.drawImage(video, 0, 0, width, height);
+        const points = landmarksRef.current;
+        if (points && ctx) {
+          const s = latest.current;
+          if (s.showMesh) drawMesh(ctx, points);
+          renderLook(ctx, points, s.palette, s.intensity, s.look, s.mode, s.teachingZone);
+          if (s.brushDirection) drawBrushDirection(ctx, points, s.teachingZone);
+        }
+      }
+      frame = requestAnimationFrame(loop);
+    };
+    loop();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [enabled, landmarksRef, videoRef]);
 
   return (
     <canvas
@@ -392,4 +432,83 @@ export default function FaceMeshCanvas({
       }
     />
   );
+}
+
+/** Runs one MediaPipe inference loop for multiple visual renderers. */
+export function FaceMeshTracker({
+  videoRef,
+  enabled,
+  landmarksRef,
+  onStatus,
+  onQuality,
+}: {
+  videoRef: RefObject<HTMLVideoElement | null>;
+  enabled: boolean;
+  landmarksRef: RefObject<FaceLandmarks | null>;
+  onStatus: (status: MeshStatus) => void;
+  onQuality?: (quality: TrackingQuality) => void;
+}) {
+  useEffect(() => {
+    if (!enabled) {
+      landmarksRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    let frame = 0;
+    let landmarker: FaceLandmarker | null = null;
+    let lastVideoTime = -1;
+    let lastStatus: MeshStatus = "idle";
+    let lastQuality: TrackingQuality = "waiting";
+    const report = (status: MeshStatus) => {
+      if (status !== lastStatus) {
+        lastStatus = status;
+        onStatus(status);
+      }
+    };
+    async function boot() {
+      report("loading");
+      try {
+        const vision = await FilesetResolver.forVisionTasks(WASM);
+        landmarker = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: MODEL, delegate: "GPU" },
+          runningMode: "VIDEO",
+          numFaces: 1,
+          outputFaceBlendshapes: false,
+          outputFacialTransformationMatrixes: true,
+        });
+        loop();
+      } catch {
+        report("fallback");
+      }
+    }
+    function loop() {
+      if (cancelled) return;
+      const video = videoRef.current;
+      if (video && landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        const points = landmarker.detectForVideo(video, performance.now()).faceLandmarks[0];
+        if (points) {
+          landmarksRef.current = points;
+          report("tracking");
+          const quality = trackingQuality(points);
+          if (quality !== lastQuality) {
+            lastQuality = quality;
+            onQuality?.(quality);
+          }
+        } else {
+          landmarksRef.current = null;
+          report("no-face");
+        }
+      }
+      frame = requestAnimationFrame(loop);
+    }
+    boot();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      landmarksRef.current = null;
+      landmarker?.close();
+    };
+  }, [enabled, landmarksRef, onQuality, onStatus, videoRef]);
+  return null;
 }
