@@ -33,6 +33,7 @@
 | A-028 | Live voice-agent scope | The local demo exposes the coach context and UI contract but does not send audio to a provider until a user-authorized realtime API credential and server-side session endpoint are configured | interface | default |
 | A-029 | Makeup compositing | When camera tracking is active, copy each camera frame into the effect canvas before rendering masks. This lets blend modes operate on actual image pixels; retain the underlying video only as an initialization fallback | semantic | default |
 | A-030 | Dual-view performance | In coaching, one MediaPipe tracker reads the operation-camera feed and writes landmarks to a shared in-memory ref; both the teaching and target-look canvases render from those points instead of creating separate inference loops | semantic | default |
+| A-031 | Temporal AR stability | Use an exponential moving average with the current frame weighted at 0.68 for equal-sized consecutive landmark sets; clear history when no face is detected so a new face is never pulled toward stale geometry | semantic | default |
 
 ## Notes
 

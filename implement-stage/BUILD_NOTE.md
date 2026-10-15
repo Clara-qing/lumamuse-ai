@@ -21,6 +21,7 @@
 | F16 | 实时语音陪练接入设计（不含密钥） | 文档审阅 | MUST | ✅ |
 | F17 | 视频帧内妆效合成与柔边区域 Mask | `pnpm test` + `pnpm test:e2e` | MUST | ✅ |
 | F18 | 双镜共享一次人脸推理 | `pnpm test` + `pnpm test:e2e` | MUST | ✅ |
+| F19 | 时序关键点平滑，减少 AR 抖动 | `pnpm test` + `pnpm test:e2e` | MUST | ✅ |
 
 ## Run record
 
@@ -43,6 +44,7 @@
 - F15: `pnpm test`, exit 0 (10 unit/render tests); `pnpm test:e2e`, exit 0; the verified camera path reaches two synchronized coaching overlays and the current-step direction copy.
 - F17: `pnpm test`, exit 0 (10 tests); `pnpm test:e2e`, exit 0; video pixels are composited into the output canvas before face-mask blending, and the same live camera flow reaches the dual coaching view.
 - F18: `pnpm test`, exit 0 (10 tests); `pnpm test:e2e`, exit 0; one tracker supplies landmarks to both coaching renderers while the verified camera flow retains step direction and target-look comparison.
+- F19: `pnpm test`, exit 0 (12 tests, including temporal-smoothing unit coverage); `pnpm test:e2e`, exit 0; smoothed landmarks retain the verified style-to-dual-coaching camera journey.
 
 ## Deferred
 

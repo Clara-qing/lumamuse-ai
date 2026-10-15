@@ -7,6 +7,7 @@ import {
   NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
 import { trackingQuality } from "./trackingQuality";
+import { smoothLandmarks } from "./faceSmoothing";
 import type { TrackingQuality } from "./trackingQuality";
 export type { TrackingQuality } from "./trackingQuality";
 export type FaceLandmarks = NormalizedLandmark[];
@@ -298,6 +299,7 @@ export default function FaceMeshCanvas({
     let frame = 0;
     let landmarker: FaceLandmarker | null = null;
     let lastVideoTime = -1;
+    let previousPoints: FaceLandmarks | null = null;
     let lastStatus: MeshStatus = "idle";
     let lastQuality: TrackingQuality = "waiting";
     const report = (status: MeshStatus) => {
@@ -344,8 +346,10 @@ export default function FaceMeshCanvas({
           ctx?.clearRect(0, 0, width, height);
           ctx?.drawImage(video, 0, 0, width, height);
           const result = landmarker.detectForVideo(video, performance.now());
-          const points = result.faceLandmarks[0];
-          if (points && ctx) {
+          const rawPoints = result.faceLandmarks[0];
+          if (rawPoints && ctx) {
+            const points = smoothLandmarks(previousPoints, rawPoints);
+            previousPoints = points;
             report("tracking");
             const s = latest.current;
             const quality = trackingQuality(points);
@@ -365,6 +369,7 @@ export default function FaceMeshCanvas({
             );
             if(s.brushDirection) drawBrushDirection(ctx,points,s.teachingZone);
           } else {
+            previousPoints = null;
             report("no-face");
             if (lastQuality !== "waiting") {
               lastQuality = "waiting";
@@ -459,6 +464,7 @@ export function FaceMeshTracker({
     let lastVideoTime = -1;
     let lastStatus: MeshStatus = "idle";
     let lastQuality: TrackingQuality = "waiting";
+    let previousPoints: FaceLandmarks | null = null;
     const report = (status: MeshStatus) => {
       if (status !== lastStatus) {
         lastStatus = status;
@@ -486,8 +492,10 @@ export function FaceMeshTracker({
       const video = videoRef.current;
       if (video && landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
-        const points = landmarker.detectForVideo(video, performance.now()).faceLandmarks[0];
-        if (points) {
+        const rawPoints = landmarker.detectForVideo(video, performance.now()).faceLandmarks[0];
+        if (rawPoints) {
+          const points = smoothLandmarks(previousPoints, rawPoints);
+          previousPoints = points;
           landmarksRef.current = points;
           report("tracking");
           const quality = trackingQuality(points);
@@ -496,6 +504,7 @@ export function FaceMeshTracker({
             onQuality?.(quality);
           }
         } else {
+          previousPoints = null;
           landmarksRef.current = null;
           report("no-face");
         }
