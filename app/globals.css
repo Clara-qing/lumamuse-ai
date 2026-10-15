@@ -1244,3 +1244,17 @@ button {
   opacity: 0.42;
   cursor: not-allowed;
 }
+.direction-hint {
+  display: grid;
+  gap: 3px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--rose);
+  border-radius: 0 10px 10px 0;
+  background: #fff5f1;
+  color: #765863;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.direction-hint b { color: var(--rose); font-size: 11px; letter-spacing: .06em; }
+.dual-mirror-stage{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:center;padding:24px}.coach-mirror-cell{min-width:0}.coach-view-label{margin:0 0 8px;font-size:11px;font-weight:900;letter-spacing:.08em;color:#7b5a64}.dual-mirror-stage .live-mirror{width:100%;height:min(60vh,560px);min-height:410px;border-width:6px;border-radius:42% 42% 30% 30%}.dual-mirror-stage .mirror-caption{bottom:12px;left:12px;right:12px;padding:10px 12px}.dual-mirror-stage .mirror-top{top:11px;left:12px;right:12px}.target-look-cell .live-mirror{box-shadow:0 18px 45px #8d526938}@media(max-width:1100px){.dual-mirror-stage{grid-template-columns:1fr;overflow:auto}.dual-mirror-stage .live-mirror{height:500px;max-width:470px;margin:auto}}@media(max-width:760px){.dual-mirror-stage{padding:18px}.dual-mirror-stage .live-mirror{height:430px;min-height:400px}}

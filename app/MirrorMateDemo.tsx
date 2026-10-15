@@ -190,6 +190,19 @@ function qualityCopy(quality: TrackingQuality) {
     ready: "距离与位置合适",
   }[quality];
 }
+function directionCopy(zone: string) {
+  return {
+    base: "从睫毛根部向上轻扫",
+    outer: "从外眼角向外晕染",
+    lower: "沿下眼尾向内连接",
+    liner: "贴睫毛根部平拉",
+    soften: "沿边界来回柔化",
+    highlight: "在眼中少量轻点",
+    cheek: "从耳前向内带开",
+    jaw: "沿下颌向颈部带开",
+    scan: "轻转头检查边界",
+  }[zone] ?? "跟随镜面箭头";
+}
 
 export default function MirrorMateDemo() {
   const [stage, setStage] = useState<Stage>("upload"),
@@ -211,6 +224,8 @@ export default function MirrorMateDemo() {
     [rescue, setRescue] = useState(false),
     [events, setEvents] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null),
+    guideVideoRef = useRef<HTMLVideoElement>(null),
+    previewVideoRef = useRef<HTMLVideoElement>(null),
     streamRef = useRef<MediaStream | null>(null);
   const t = templates[templateKey],
     current = t.steps[step],
@@ -590,6 +605,7 @@ export default function MirrorMateDemo() {
           <LiveMirror
             camera={camera}
             videoRef={videoRef}
+            stream={streamRef.current}
             meshStatus={meshStatus}
             onMeshStatus={onMeshStatus}
             palette={palette}
@@ -643,10 +659,13 @@ export default function MirrorMateDemo() {
               {statusCopy(meshStatus)}
             </div>
           </aside>
-          <div className="mirror-stage">
+          <div className="mirror-stage dual-mirror-stage">
+            <div className="coach-mirror-cell">
+              <p className="coach-view-label">操作镜头 · 按箭头上妆</p>
             <LiveMirror
               camera={camera}
-              videoRef={videoRef}
+              videoRef={guideVideoRef}
+              stream={streamRef.current}
               meshStatus={meshStatus}
               onMeshStatus={onMeshStatus}
               palette={palette}
@@ -655,8 +674,26 @@ export default function MirrorMateDemo() {
               teachingZone={current.zone}
               mode="teach"
               showMesh={false}
+              brushDirection={current.zone}
               onQuality={onTrackingQuality}
             />
+            </div>
+            <div className="coach-mirror-cell target-look-cell">
+              <p className="coach-view-label">目标妆效 · 实时对照</p>
+              <LiveMirror
+                camera={camera}
+                videoRef={previewVideoRef}
+                stream={streamRef.current}
+                meshStatus={meshStatus}
+                onMeshStatus={onMeshStatus}
+                palette={palette}
+                intensity={intensity}
+                look={templateKey}
+                mode="tryon"
+                showMesh={false}
+                onQuality={onTrackingQuality}
+              />
+            </div>
           </div>
           <aside className="instruction-panel">
             <p className="step-number">
@@ -668,6 +705,10 @@ export default function MirrorMateDemo() {
               <b>新手提示</b>
               <span>{current.tip}</span>
             </div>
+            <p className="direction-hint">
+              <b>镜面箭头</b>
+              {directionCopy(current.zone)}
+            </p>
             {rescue ? (
               <div className="rescue-card">
                 <p>只先调整一个点</p>
@@ -764,6 +805,7 @@ export default function MirrorMateDemo() {
 function LiveMirror({
   camera,
   videoRef,
+  stream,
   meshStatus,
   onMeshStatus,
   palette,
@@ -772,10 +814,12 @@ function LiveMirror({
   teachingZone,
   mode,
   showMesh,
+  brushDirection,
   onQuality,
 }: {
   camera: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  stream: MediaStream | null;
   meshStatus: MeshStatus;
   onMeshStatus: (s: MeshStatus) => void;
   palette: string[];
@@ -784,9 +828,16 @@ function LiveMirror({
   teachingZone?: string;
   mode: "tryon" | "teach";
   showMesh: boolean;
+  brushDirection?: string;
   onQuality: (q: TrackingQuality) => void;
 }) {
   const fallback = !camera || meshStatus === "fallback";
+  useEffect(() => {
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [stream, videoRef]);
   return (
     <div className={`live-mirror ${camera && !fallback ? "camera-on" : ""}`}>
       <div className="mirror-top">
@@ -807,6 +858,7 @@ function LiveMirror({
         teachingZone={teachingZone}
         mode={mode}
         showMesh={showMesh}
+        brushDirection={brushDirection}
         onStatus={onMeshStatus}
         onQuality={onQuality}
       />

@@ -26,6 +26,7 @@ type Props = {
   teachingZone?: string;
   mode: "tryon" | "teach";
   showMesh?: boolean;
+  brushDirection?: string;
   onStatus: (status: MeshStatus) => void;
   onQuality?: (quality: TrackingQuality) => void;
 };
@@ -61,9 +62,11 @@ function polygon(
   fill: string,
   blur = 0,
   stroke?: string,
+  blend: GlobalCompositeOperation = "source-over",
 ) {
   ctx.save();
   ctx.filter = blur ? `blur(${blur}px)` : "none";
+  ctx.globalCompositeOperation = blend;
   ctx.beginPath();
   ids.forEach((id, index) => {
     const p = points[id];
@@ -99,6 +102,32 @@ function drawMesh(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
     ctx.stroke();
   });
   ctx.restore();
+}
+
+function arrow(ctx: CanvasRenderingContext2D, from: NormalizedLandmark, to: NormalizedLandmark, label: string) {
+  const x1=from.x*ctx.canvas.width,y1=from.y*ctx.canvas.height,x2=to.x*ctx.canvas.width,y2=to.y*ctx.canvas.height;
+  const angle=Math.atan2(y2-y1,x2-x1),head=12;
+  ctx.save();
+  ctx.strokeStyle="#fff";ctx.fillStyle="#fff";ctx.lineWidth=3;ctx.lineCap="round";
+  ctx.shadowColor="rgba(37,30,33,.7)";ctx.shadowBlur=5;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-head*Math.cos(angle-Math.PI/6),y2-head*Math.sin(angle-Math.PI/6));ctx.lineTo(x2-head*Math.cos(angle+Math.PI/6),y2-head*Math.sin(angle+Math.PI/6));ctx.closePath();ctx.fill();
+  ctx.font="700 12px Arial";ctx.fillText(label,x1+8,y1-9);ctx.restore();
+}
+
+function drawBrushDirection(ctx:CanvasRenderingContext2D,points:NormalizedLandmark[],zone?:string){
+  const pairs:Record<string,[number,number,string][]>={
+    base:[[159,161,"向上轻扫"],[386,384,"向上轻扫"]],
+    outer:[[133,33,"向外晕染"],[263,362,"向外晕染"]],
+    lower:[[33,133,"向内连接"],[362,263,"向内连接"]],
+    liner:[[33,133,"贴根平拉"],[362,263,"贴根平拉"]],
+    soften:[[133,33,"来回柔化"],[263,362,"来回柔化"]],
+    highlight:[[159,158,"轻点"],[386,387,"轻点"]],
+    cheek:[[234,93,"耳前向内"],[454,323,"耳前向内"]],
+    jaw:[[172,136,"向颈部带开"],[397,365,"向颈部带开"]],
+    scan:[[1,234,"转头检查"]],
+  };
+  (pairs[zone||""]||[]).forEach(([a,b,label])=>{if(points[a]&&points[b])arrow(ctx,points[a],points[b],label)});
 }
 
 function renderLook(
@@ -155,8 +184,11 @@ function renderLook(
     return;
   }
   if (look !== "contour") {
-    polygon(ctx, points, LEFT_EYE, rgba(palette[0], a), 4);
-    polygon(ctx, points, RIGHT_EYE, rgba(palette[0], a), 4);
+    // The blend modes intentionally mirror the compositing vocabulary used by
+    // production effect editors: shadow darkens underlying skin while highlight
+    // retains texture instead of painting an opaque flat colour.
+    polygon(ctx, points, LEFT_EYE, rgba(palette[0], a), 4, undefined, "soft-light");
+    polygon(ctx, points, RIGHT_EYE, rgba(palette[0], a), 4, undefined, "soft-light");
     const outerA = look === "smoky" ? a * 1.25 : a * 0.8;
     polygon(
       ctx,
@@ -164,6 +196,8 @@ function renderLook(
       [33, 246, 161, 160, 159, 133, 155, 154, 153],
       rgba(palette[1], outerA),
       2,
+      undefined,
+      "multiply",
     );
     polygon(
       ctx,
@@ -171,15 +205,17 @@ function renderLook(
       [362, 398, 384, 385, 386, 263, 249, 390, 373],
       rgba(palette[1], outerA),
       2,
+      undefined,
+      "multiply",
     );
-    polygon(ctx, points, LEFT_CHEEK, rgba(palette[0], a * 0.32), 12);
-    polygon(ctx, points, RIGHT_CHEEK, rgba(palette[0], a * 0.32), 12);
-    polygon(ctx, points, LIPS, rgba(palette[1], a * 0.75), 1);
+    polygon(ctx, points, LEFT_CHEEK, rgba(palette[0], a * 0.32), 12, undefined, "soft-light");
+    polygon(ctx, points, RIGHT_CHEEK, rgba(palette[0], a * 0.32), 12, undefined, "soft-light");
+    polygon(ctx, points, LIPS, rgba(palette[1], a * 0.75), 1, undefined, "multiply");
   } else {
-    polygon(ctx, points, LEFT_CHEEK, rgba(palette[1], a * 0.65), 10);
-    polygon(ctx, points, RIGHT_CHEEK, rgba(palette[1], a * 0.65), 10);
-    polygon(ctx, points, LEFT_JAW, rgba(palette[1], a * 0.35), 12);
-    polygon(ctx, points, RIGHT_JAW, rgba(palette[1], a * 0.35), 12);
+    polygon(ctx, points, LEFT_CHEEK, rgba(palette[1], a * 0.65), 10, undefined, "multiply");
+    polygon(ctx, points, RIGHT_CHEEK, rgba(palette[1], a * 0.65), 10, undefined, "multiply");
+    polygon(ctx, points, LEFT_JAW, rgba(palette[1], a * 0.35), 12, undefined, "multiply");
+    polygon(ctx, points, RIGHT_JAW, rgba(palette[1], a * 0.35), 12, undefined, "multiply");
   }
 }
 
@@ -192,6 +228,7 @@ export default function FaceMeshCanvas({
   teachingZone,
   mode,
   showMesh = false,
+  brushDirection,
   onStatus,
   onQuality,
 }: Props) {
@@ -203,10 +240,11 @@ export default function FaceMeshCanvas({
     teachingZone,
     mode,
     showMesh,
+    brushDirection,
   });
   useEffect(() => {
-    latest.current = { palette, intensity, look, teachingZone, mode, showMesh };
-  }, [palette, intensity, look, teachingZone, mode, showMesh]);
+    latest.current = { palette, intensity, look, teachingZone, mode, showMesh, brushDirection };
+  }, [palette, intensity, look, teachingZone, mode, showMesh, brushDirection]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -275,6 +313,7 @@ export default function FaceMeshCanvas({
               s.mode,
               s.teachingZone,
             );
+            if(s.brushDirection) drawBrushDirection(ctx,points,s.teachingZone);
           } else {
             report("no-face");
             if (lastQuality !== "waiting") {
@@ -299,7 +338,11 @@ export default function FaceMeshCanvas({
     <canvas
       ref={canvasRef}
       className="face-mesh-canvas"
-      aria-label="实时面部网格妆效叠加层"
+      aria-label={
+        brushDirection
+          ? `实时面部网格妆效叠加层，当前刷具方向：${brushDirection}`
+          : "实时面部网格妆效叠加层"
+      }
     />
   );
 }

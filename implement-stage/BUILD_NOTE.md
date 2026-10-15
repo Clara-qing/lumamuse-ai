@@ -16,7 +16,9 @@
 | F11 | Visible 478-point mesh and camera calibration | `pnpm test` | MUST | ✅ |
 | F12 | Deploy calibration upgrade | `pnpm build` | SHOULD | ✅ |
 | F13 | Browser E2E: style to real face tracking to coaching | `pnpm test:e2e` | MUST | ✅ |
-| F14 | Final verified deployment | `pnpm build` | SHOULD | 进行中 |
+| F14 | Final verified deployment | `pnpm build` | SHOULD | ✅ |
+| F15 | 双镜同步对照、分步刷具箭头与更自然的混合模式 | `pnpm test` | MUST | 进行中 |
+| F16 | 实时语音陪练接入设计（不含密钥） | 文档审阅 | MUST | ✅ |
 
 ## Run record
 
@@ -35,11 +37,13 @@
 - F11: `pnpm test`, exit 0; optional face tesselation, scale/centering readiness, acceptance gate, and four calibration unit tests present.
 - F12: visible-mesh and calibration version deployed successfully to the private Sites URL.
 - F13: `pnpm test:e2e`, exit 0; headless Chrome consumed a fake-camera Y4M made from MediaPipe's portrait asset, reached 478-point tracking and ready calibration, unlocked acceptance, and entered the first coaching step.
+- F16: `VOICE_AGENT_ARCHITECTURE.md` defines a single real-time coach, context tools, browser/server boundary, privacy guardrails, and required credentials without embedding a provider secret.
 
 ## Deferred
 
 - Brush/product tracking and production-quality makeup segmentation still require a labelled dataset and real-user validation.
 - Open-ended reconstruction of any social-media makeup image: single-result images do not reveal reliable product order or technique.
+- Production TikTok-level rendering needs region masks, texture assets and portrait/occlusion segmentation; this MVP uses landmarks plus blend modes and does not claim pixel-perfect reconstruction.
 
 ## Blockers
 

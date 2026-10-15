@@ -31,6 +31,14 @@ try{
   await accept.click();
   await page.getByText("STEP 3 · 对镜跟练").waitFor();
   await page.getByText("眼窝打底").first().waitFor();
+  await page.getByText("操作镜头 · 按箭头上妆").waitFor();
+  await page.getByText("目标妆效 · 实时对照").waitFor();
+  await page.getByText("镜面箭头从睫毛根部向上轻扫").waitFor();
+  assert.equal(
+    await page.locator(".dual-mirror-stage .face-mesh-canvas").count(),
+    2,
+    "coaching must render both the teaching and target-look overlays",
+  );
   await browser.close();
-  console.log("E2E PASS: style → live 478-point tracking → calibrated acceptance → coaching");
+  console.log("E2E PASS: style → live 478-point tracking → calibrated acceptance → dual coaching with direction");
 }finally{server.kill("SIGTERM")}
