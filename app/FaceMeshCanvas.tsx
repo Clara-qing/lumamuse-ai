@@ -87,6 +87,49 @@ function polygon(
   ctx.restore();
 }
 
+function softlyFillPolygon(
+  ctx: CanvasRenderingContext2D,
+  points: NormalizedLandmark[],
+  ids: number[],
+  color: string,
+  alpha: number,
+  blur: number,
+  blend: GlobalCompositeOperation,
+) {
+  const coordinates = ids.map((id) => ({
+    x: points[id].x * ctx.canvas.width,
+    y: points[id].y * ctx.canvas.height,
+  }));
+  const center = coordinates.reduce(
+    (total, point) => ({ x: total.x + point.x, y: total.y + point.y }),
+    { x: 0, y: 0 },
+  );
+  center.x /= coordinates.length;
+  center.y /= coordinates.length;
+  const radius = Math.max(
+    20,
+    ...coordinates.map((point) => Math.hypot(point.x - center.x, point.y - center.y)),
+  );
+  const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius * 1.2);
+  gradient.addColorStop(0, rgba(color, alpha));
+  gradient.addColorStop(0.68, rgba(color, alpha * 0.6));
+  gradient.addColorStop(1, rgba(color, 0));
+
+  ctx.save();
+  ctx.filter = `blur(${blur}px)`;
+  ctx.globalCompositeOperation = blend;
+  ctx.beginPath();
+  coordinates.forEach((point, index) => {
+    if (index) ctx.lineTo(point.x, point.y);
+    else ctx.moveTo(point.x, point.y);
+  });
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = gradient;
+  ctx.fillRect(center.x - radius * 1.4, center.y - radius * 1.4, radius * 2.8, radius * 2.8);
+  ctx.restore();
+}
+
 function drawMesh(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
   ctx.save();
   FaceLandmarker.FACE_LANDMARKS_TESSELATION.forEach(({ start, end }) => {
@@ -208,14 +251,14 @@ function renderLook(
       undefined,
       "multiply",
     );
-    polygon(ctx, points, LEFT_CHEEK, rgba(palette[0], a * 0.32), 12, undefined, "soft-light");
-    polygon(ctx, points, RIGHT_CHEEK, rgba(palette[0], a * 0.32), 12, undefined, "soft-light");
+    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[0], a * 0.42, 10, "soft-light");
+    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[0], a * 0.42, 10, "soft-light");
     polygon(ctx, points, LIPS, rgba(palette[1], a * 0.75), 1, undefined, "multiply");
   } else {
-    polygon(ctx, points, LEFT_CHEEK, rgba(palette[1], a * 0.65), 10, undefined, "multiply");
-    polygon(ctx, points, RIGHT_CHEEK, rgba(palette[1], a * 0.65), 10, undefined, "multiply");
-    polygon(ctx, points, LEFT_JAW, rgba(palette[1], a * 0.35), 12, undefined, "multiply");
-    polygon(ctx, points, RIGHT_JAW, rgba(palette[1], a * 0.35), 12, undefined, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[1], a * 0.72, 9, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[1], a * 0.72, 9, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_JAW, palette[1], a * 0.42, 11, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_JAW, palette[1], a * 0.42, 11, "multiply");
   }
 }
 
@@ -290,9 +333,13 @@ export default function FaceMeshCanvas({
           canvas.height = height;
         }
         const ctx = canvas.getContext("2d");
-        ctx?.clearRect(0, 0, width, height);
         if (video.currentTime !== lastVideoTime) {
           lastVideoTime = video.currentTime;
+          // A transparent overlay cannot blend with the pixels in the separate
+          // <video> element. Compositing the frame first makes `multiply` and
+          // `soft-light` interact with actual skin pixels, like an effect editor.
+          ctx?.clearRect(0, 0, width, height);
+          ctx?.drawImage(video, 0, 0, width, height);
           const result = landmarker.detectForVideo(video, performance.now());
           const points = result.faceLandmarks[0];
           if (points && ctx) {

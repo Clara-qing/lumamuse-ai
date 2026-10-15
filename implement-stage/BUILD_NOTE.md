@@ -19,6 +19,7 @@
 | F14 | Final verified deployment | `pnpm build` | SHOULD | ✅ |
 | F15 | 双镜同步对照、分步刷具箭头与更自然的混合模式 | `pnpm test` + `pnpm test:e2e` | MUST | ✅ |
 | F16 | 实时语音陪练接入设计（不含密钥） | 文档审阅 | MUST | ✅ |
+| F17 | 视频帧内妆效合成与柔边区域 Mask | `pnpm test` + `pnpm test:e2e` | MUST | ✅ |
 
 ## Run record
 
@@ -39,6 +40,7 @@
 - F13: `pnpm test:e2e`, exit 0; headless Chrome consumed a fake-camera Y4M made from MediaPipe's portrait asset, reached 478-point tracking and ready calibration, unlocked acceptance, and entered the first coaching step.
 - F16: `VOICE_AGENT_ARCHITECTURE.md` defines a single real-time coach, context tools, browser/server boundary, privacy guardrails, and required credentials without embedding a provider secret.
 - F15: `pnpm test`, exit 0 (10 unit/render tests); `pnpm test:e2e`, exit 0; the verified camera path reaches two synchronized coaching overlays and the current-step direction copy.
+- F17: `pnpm test`, exit 0 (10 tests); `pnpm test:e2e`, exit 0; video pixels are composited into the output canvas before face-mask blending, and the same live camera flow reaches the dual coaching view.
 
 ## Deferred
 

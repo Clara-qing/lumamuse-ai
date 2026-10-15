@@ -31,6 +31,7 @@
 | A-026 | Dual-view coaching | Once a look is accepted, show a synchronized “操作镜头” with only the current teaching overlay and a separate “目标妆效预览” that renders the accepted makeup effect on the same local camera stream | interface | default |
 | A-027 | Tool-direction guidance | Render step-specific animated arrows anchored to face landmarks: base/upward, eye-tail/outward, lower-eye/inward, highlight/tap, cheek/ear-to-center, jaw/down-to-neck, and scan/turn-head | semantic | default |
 | A-028 | Live voice-agent scope | The local demo exposes the coach context and UI contract but does not send audio to a provider until a user-authorized realtime API credential and server-side session endpoint are configured | interface | default |
+| A-029 | Makeup compositing | When camera tracking is active, copy each camera frame into the effect canvas before rendering masks. This lets blend modes operate on actual image pixels; retain the underlying video only as an initialization fallback | semantic | default |
 
 ## Notes
 
