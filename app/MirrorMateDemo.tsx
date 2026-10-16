@@ -484,18 +484,27 @@ export default function MirrorMateDemo() {
         let data: { type?: string; transcript?: string; error?: { message?: string } };
         try { data = JSON.parse(event.data); } catch { return; }
         if (data.type === "session.created") {
-          realtimeActiveRef.current = true;
-          sender?.replaceTrack(track ?? null).catch(() => {});
           channel.send(JSON.stringify({
+            event_id: `lumamuse_${Date.now()}`,
             type: "session.update",
             session: {
               modalities: ["text", "audio"],
               voice: "Tina",
-              input_audio_transcription: { model: "gummy-realtime-v1" },
-              turn_detection: { type: "server_vad" },
+              input_audio_format: "pcm",
+              output_audio_format: "pcm",
+              input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
+              turn_detection: {
+                type: "server_vad",
+                prefix_padding_ms: 500,
+                silence_duration_ms: 800,
+                threshold: 0.5,
+              },
               instructions: `你是 LumaMuse 光感妆伴，一位耐心、简洁、鼓励式的中文化妆陪练。用户正在练习「${t.name}」第 ${step + 1} 步「${current.title}」。给出一步一动作的可执行指导，不评价颜值，不进行医疗建议。听到“下一步、上一步、慢一点、再说一遍、救一下/画错”时先用一句简短中文回应。`,
             },
           }));
+        } else if (data.type === "session.updated") {
+          realtimeActiveRef.current = true;
+          sender?.replaceTrack(track ?? null).catch(() => {});
           setVoiceStatus("listening");
           setVoiceTranscript("已接通千问实时陪练，可以自然说话或随时打断。");
         } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
