@@ -7,7 +7,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
   const protocol = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
   const image = `${protocol}://${host}/og.png`;
-  const title = "妆伴 MirrorMate · 把喜欢的妆真正学会";
+  const title = "LumaMuse 光感妆伴 · 把喜欢的妆真正学会";
   const description = "上传妆容范本，获得适配本人眼型与脸型的分步 AR 化妆教学。";
   return {
     title, description,

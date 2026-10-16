@@ -16,7 +16,7 @@ test("server-renders the MirrorMate product shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /妆伴 MirrorMate/);
+  assert.match(html, /LumaMuse 光感妆伴/);
   assert.match(html, /喜欢的妆/);
   assert.match(html, /本地隐私模式/);
   assert.match(html, /上传妆容范本/);

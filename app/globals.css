@@ -1273,7 +1273,7 @@ button {
 .voice-avatar i:nth-child(1) { height: 10px; }
 .voice-avatar i:nth-child(2) { height: 18px; animation-delay: .15s; }
 .voice-avatar i:nth-child(3) { height: 13px; animation-delay: .3s; }
-.voice-call.listening .voice-avatar { background: var(--rose); }
+.voice-call.listening .voice-avatar, .voice-call.connecting .voice-avatar { background: var(--rose); }
 .voice-call:not(.listening) .voice-avatar i { animation-play-state: paused; }
 .voice-copy { display: grid; gap: 2px; min-width: 0; }
 .voice-copy b { font-size: 12px; color: #392f32; }

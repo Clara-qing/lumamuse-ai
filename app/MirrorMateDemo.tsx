@@ -15,7 +15,7 @@ import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
 
 type TemplateKey = "daily" | "smoky" | "contour";
 type Stage = "upload" | "design" | "tryon" | "coach" | "finish";
-type VoiceStatus = "idle" | "listening" | "unsupported";
+type VoiceStatus = "idle" | "connecting" | "listening" | "unsupported";
 type SpeechRecognitionLike = {
   lang: string;
   continuous: boolean;
@@ -242,7 +242,12 @@ export default function MirrorMateDemo() {
     previewVideoRef = useRef<HTMLVideoElement>(null),
     coachLandmarksRef = useRef<FaceLandmarks | null>(null),
     recognitionRef = useRef<SpeechRecognitionLike | null>(null),
-    streamRef = useRef<MediaStream | null>(null);
+    streamRef = useRef<MediaStream | null>(null),
+    voiceStreamRef = useRef<MediaStream | null>(null),
+    realtimePcRef = useRef<RTCPeerConnection | null>(null),
+    realtimeChannelRef = useRef<RTCDataChannel | null>(null),
+    realtimeAudioRef = useRef<HTMLAudioElement | null>(null),
+    realtimeActiveRef = useRef(false);
   const t = templates[templateKey],
     current = t.steps[step],
     progress = Math.round(((step + 1) / t.steps.length) * 100);
@@ -265,6 +270,9 @@ export default function MirrorMateDemo() {
     () => () => {
       streamRef.current?.getTracks().forEach((x) => x.stop());
       recognitionRef.current?.stop();
+      voiceStreamRef.current?.getTracks().forEach((x) => x.stop());
+      realtimeChannelRef.current?.close();
+      realtimePcRef.current?.close();
     },
     [],
   );
@@ -353,42 +361,57 @@ export default function MirrorMateDemo() {
   function stopVoiceCoach() {
     recognitionRef.current?.stop();
     recognitionRef.current = null;
+    realtimeActiveRef.current = false;
+    realtimeChannelRef.current?.close();
+    realtimeChannelRef.current = null;
+    realtimePcRef.current?.close();
+    realtimePcRef.current = null;
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    voiceStreamRef.current = null;
+    if (realtimeAudioRef.current) {
+      realtimeAudioRef.current.pause();
+      realtimeAudioRef.current.srcObject = null;
+      realtimeAudioRef.current = null;
+    }
     setVoiceStatus("idle");
   }
   function handleVoiceCommand(transcript: string) {
     const cleaned = transcript.replace(/\s/g, "");
+    const say = (text: string) => {
+      if (!realtimeActiveRef.current) speakText(text);
+    };
     setVoiceTranscript(`你说：“${transcript}”`);
     if (/上一步|返回/.test(cleaned)) {
       if (step > 0) setStep(step - 1);
-      speakText(step > 0 ? "好的，回到上一步。" : "这已经是第一步。 ");
+      say(step > 0 ? "好的，回到上一步。" : "这已经是第一步。 ");
       return;
     }
     if (/下一步|继续|完成/.test(cleaned)) {
       if (step < t.steps.length - 1) {
         next();
-        speakText(`好的，下一步是${t.steps[step + 1].title}。${t.steps[step + 1].instruction}`);
+        say(`好的，下一步是${t.steps[step + 1].title}。${t.steps[step + 1].instruction}`);
       } else {
-        speakText("你已经完成全部步骤，可以点击完成练习查看复盘。 ");
+        say("你已经完成全部步骤，可以点击完成练习查看复盘。 ");
       }
       return;
     }
     if (/慢一点|放慢/.test(cleaned)) {
-      speakText(`${current.title}。${current.instruction}。我再慢一点说：${directionCopy(current.zone)}。`);
+      say(`${current.title}。${current.instruction}。我再慢一点说：${directionCopy(current.zone)}。`);
       return;
     }
     if (/再说一遍|重复|没听清/.test(cleaned)) {
-      speak();
+      if (!realtimeActiveRef.current) speak();
       return;
     }
     if (/救一下|出界|画错/.test(cleaned)) {
       setRescue(true);
       setEvents((v) => [...v, "语音求助：需要补救"]);
-      speakText("我来帮你补救。先停下，不要继续叠色，然后按补救卡完成一个小动作。 ");
+      say("我来帮你补救。先停下，不要继续叠色，然后按补救卡完成一个小动作。 ");
       return;
     }
-    speakText(`我听到你说${transcript}。你可以说下一步、慢一点、再说一遍或救一下。`);
+    say(`我听到你说${transcript}。你可以说下一步、慢一点、再说一遍或救一下。`);
   }
-  function startVoiceCoach() {
+  function startBrowserVoiceCoach(message = "") {
     const browser = window as typeof window & {
       SpeechRecognition?: SpeechRecognitionConstructor;
       webkitSpeechRecognition?: SpeechRecognitionConstructor;
@@ -396,7 +419,7 @@ export default function MirrorMateDemo() {
     const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
     if (!Recognition) {
       setVoiceStatus("unsupported");
-      setVoiceTranscript("当前浏览器未提供语音识别；仍可使用朗读和按钮。 ");
+      setVoiceTranscript(message || "当前浏览器未提供语音识别；仍可使用朗读和按钮。 ");
       return;
     }
     recognitionRef.current?.stop();
@@ -425,6 +448,89 @@ export default function MirrorMateDemo() {
       recognitionRef.current = null;
       setVoiceStatus("idle");
       setVoiceTranscript("暂时无法接通麦克风，请检查浏览器权限后重试。 ");
+    }
+  }
+  async function startVoiceCoach() {
+    if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
+      startBrowserVoiceCoach("当前浏览器不支持实时通话，已切换至浏览器语音模式。");
+      return;
+    }
+    stopVoiceCoach();
+    setVoiceStatus("connecting");
+    setVoiceTranscript("正在安全连接 LumaMuse 实时语音…");
+    try {
+      const voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      voiceStreamRef.current = voiceStream;
+      const pc = new RTCPeerConnection();
+      realtimePcRef.current = pc;
+      const track = voiceStream.getAudioTracks()[0];
+      const sender = track ? pc.addTrack(track, voiceStream) : null;
+      if (sender) await sender.replaceTrack(null);
+      const channel = pc.createDataChannel("oai-events");
+      realtimeChannelRef.current = channel;
+      pc.ontrack = (event) => {
+        const audio = new Audio();
+        audio.autoplay = true;
+        audio.srcObject = event.streams[0];
+        realtimeAudioRef.current = audio;
+        audio.play().catch(() => {});
+      };
+      pc.onconnectionstatechange = () => {
+        if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
+          if (realtimePcRef.current === pc) stopVoiceCoach();
+        }
+      };
+      channel.onmessage = (event) => {
+        let data: { type?: string; transcript?: string; error?: { message?: string } };
+        try { data = JSON.parse(event.data); } catch { return; }
+        if (data.type === "session.created") {
+          realtimeActiveRef.current = true;
+          sender?.replaceTrack(track ?? null).catch(() => {});
+          channel.send(JSON.stringify({
+            type: "session.update",
+            session: {
+              modalities: ["text", "audio"],
+              voice: "Tina",
+              input_audio_transcription: { model: "gummy-realtime-v1" },
+              turn_detection: { type: "server_vad" },
+              instructions: `你是 LumaMuse 光感妆伴，一位耐心、简洁、鼓励式的中文化妆陪练。用户正在练习「${t.name}」第 ${step + 1} 步「${current.title}」。给出一步一动作的可执行指导，不评价颜值，不进行医疗建议。听到“下一步、上一步、慢一点、再说一遍、救一下/画错”时先用一句简短中文回应。`,
+            },
+          }));
+          setVoiceStatus("listening");
+          setVoiceTranscript("已接通千问实时陪练，可以自然说话或随时打断。");
+        } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
+          handleVoiceCommand(data.transcript);
+        } else if (data.type === "error") {
+          setVoiceTranscript(data.error?.message || "实时语音发生错误，请重新接通。");
+        }
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await new Promise<void>((resolve) => {
+        if (pc.iceGatheringState === "complete") return resolve();
+        const timeout = window.setTimeout(resolve, 2500);
+        pc.addEventListener("icegatheringstatechange", () => {
+          if (pc.iceGatheringState === "complete") {
+            window.clearTimeout(timeout);
+            resolve();
+          }
+        }, { once: true });
+      });
+      const response = await fetch("/api/realtime/offer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sdp: pc.localDescription?.sdp }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || "无法建立实时连接");
+      }
+      const answerSdp = (await response.text()).trim().replace(/\r?\n/g, "\r\n");
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "实时语音暂时不可用";
+      stopVoiceCoach();
+      startBrowserVoiceCoach(`实时模式未接通：${message}。已切换至浏览器语音模式。`);
     }
   }
   function next() {
@@ -465,7 +571,7 @@ export default function MirrorMateDemo() {
       <header className="appbar">
         <button className="brand-button" onClick={reset}>
           <span>MM</span>
-          <b>妆伴 MirrorMate</b>
+          <b>LumaMuse 光感妆伴</b>
         </button>
         <div className="appbar-actions">
           <span className="local-badge">
@@ -485,7 +591,7 @@ export default function MirrorMateDemo() {
               再真正学会。
             </h1>
             <p className="lead">
-              上传喜欢的妆效或直接描述风格。妆伴把它映射到你的实时面部网格，满意后再一步步教你完成。
+              上传喜欢的妆效或直接描述风格。LumaMuse 把它映射到你的实时面部网格，满意后再一步步教你完成。
             </p>
             <label className="upload-cta">
               <input type="file" accept="image/*" onChange={onFile} />
@@ -828,12 +934,14 @@ export default function MirrorMateDemo() {
                 <span>
                   {voiceStatus === "listening"
                     ? "正在聆听，可随时打断"
+                    : voiceStatus === "connecting"
+                      ? "正在连接千问实时陪练"
                     : voiceStatus === "unsupported"
                       ? "此浏览器不支持语音识别"
-                      : "浏览器语音降级模式"}
+                      : "千问实时通话 · 浏览器语音降级"}
                 </span>
               </div>
-              {voiceStatus === "listening" ? (
+              {voiceStatus === "listening" || voiceStatus === "connecting" ? (
                 <button className="voice-hangup" onClick={stopVoiceCoach}>挂断</button>
               ) : (
                 <button className="voice-connect" onClick={startVoiceCoach}>接通</button>
