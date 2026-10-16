@@ -176,31 +176,6 @@ function drawBrushDirection(ctx:CanvasRenderingContext2D,points:NormalizedLandma
   (pairs[zone||""]||[]).forEach(([a,b,label])=>{if(points[a]&&points[b])arrow(ctx,points[a],points[b],label)});
 }
 
-function strokeLandmarks(
-  ctx: CanvasRenderingContext2D,
-  points: NormalizedLandmark[],
-  ids: number[],
-  color: string,
-  alpha: number,
-  width: number,
-) {
-  ctx.save();
-  ctx.globalCompositeOperation = "multiply";
-  ctx.strokeStyle = rgba(color, alpha);
-  ctx.lineWidth = width;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  ids.forEach((id, index) => {
-    const point = points[id];
-    const x = point.x * ctx.canvas.width;
-    const y = point.y * ctx.canvas.height;
-    if (index) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-  });
-  ctx.stroke();
-  ctx.restore();
-}
-
 function renderLook(
   ctx: CanvasRenderingContext2D,
   points: NormalizedLandmark[],
@@ -210,7 +185,9 @@ function renderLook(
   mode: Props["mode"],
   teachingZone?: string,
 ) {
-  const a = Math.max(0.10, Math.min(0.82, (intensity / 100) * 0.78));
+  // Camera makeup should be almost imperceptible at the contour. Keeping the
+  // pigment under 0.5 avoids the sticker-like look of flat AR masks.
+  const a = Math.max(0.07, Math.min(0.54, (intensity / 100) * 0.52));
   const guide = "rgba(255,255,255,.9)";
   if (mode === "teach") {
     if (look === "contour") {
@@ -258,17 +235,18 @@ function renderLook(
     // The blend modes intentionally mirror the compositing vocabulary used by
     // production effect editors: shadow darkens underlying skin while highlight
     // retains texture instead of painting an opaque flat colour.
-    // A real effect needs a visible pigment layer as well as a skin-preserving
-    // blend mode. Pure soft-light disappeared under bright webcam lighting.
-    softlyFillPolygon(ctx, points, LEFT_EYE, palette[0], a * 0.82, 5, "soft-light");
-    softlyFillPolygon(ctx, points, RIGHT_EYE, palette[0], a * 0.82, 5, "soft-light");
+    // Three very soft passes mimic the subtle, camera-friendly layering used
+    // by short-video makeup effects: diffuse base, darker outer corner, and
+    // a tiny centre highlight. There are deliberately no hard outlines.
+    softlyFillPolygon(ctx, points, LEFT_EYE, palette[0], a * 0.48, 7, "soft-light");
+    softlyFillPolygon(ctx, points, RIGHT_EYE, palette[0], a * 0.48, 7, "soft-light");
     const outerA = look === "smoky" ? a * 1.25 : a * 0.8;
     polygon(
       ctx,
       points,
       [33, 246, 161, 160, 159, 133, 155, 154, 153],
-      rgba(palette[1], outerA * 0.82),
-      3,
+      rgba(palette[1], outerA * 0.38),
+      7,
       undefined,
       "multiply",
     );
@@ -276,21 +254,19 @@ function renderLook(
       ctx,
       points,
       [362, 398, 384, 385, 386, 263, 249, 390, 373],
-      rgba(palette[1], outerA * 0.82),
-      3,
+      rgba(palette[1], outerA * 0.38),
+      7,
       undefined,
       "multiply",
     );
-    strokeLandmarks(ctx, points, [33, 246, 161, 160, 159, 158, 157, 173, 133], palette[1], a * 0.68, 2.4);
-    strokeLandmarks(ctx, points, [362, 398, 384, 385, 386, 387, 388, 466, 263], palette[1], a * 0.68, 2.4);
-    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[0], a * 0.52, 10, "soft-light");
-    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[0], a * 0.52, 10, "soft-light");
-    polygon(ctx, points, LIPS, rgba(palette[1], a * 0.9), 2, undefined, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[0], a * 0.22, 14, "soft-light");
+    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[0], a * 0.22, 14, "soft-light");
+    polygon(ctx, points, LIPS, rgba(palette[1], a * 0.38), 4, undefined, "multiply");
   } else {
-    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[1], a * 0.72, 9, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[1], a * 0.72, 9, "multiply");
-    softlyFillPolygon(ctx, points, LEFT_JAW, palette[1], a * 0.42, 11, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_JAW, palette[1], a * 0.42, 11, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[1], a * 0.38, 16, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[1], a * 0.38, 16, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_JAW, palette[1], a * 0.16, 18, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_JAW, palette[1], a * 0.16, 18, "multiply");
   }
 }
 
