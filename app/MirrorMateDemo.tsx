@@ -16,6 +16,7 @@ import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
 type TemplateKey = "daily" | "smoky" | "contour";
 type Stage = "upload" | "design" | "tryon" | "coach" | "finish";
 type VoiceStatus = "idle" | "connecting" | "listening" | "unsupported";
+type VoiceMode = "realtime" | "browser" | null;
 type SpeechRecognitionLike = {
   lang: string;
   continuous: boolean;
@@ -235,6 +236,7 @@ export default function MirrorMateDemo() {
     [showMesh, setShowMesh] = useState(false),
     [rescue, setRescue] = useState(false),
     [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle"),
+    [voiceMode, setVoiceMode] = useState<VoiceMode>(null),
     [voiceTranscript, setVoiceTranscript] = useState(""),
     [events, setEvents] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null),
@@ -362,6 +364,7 @@ export default function MirrorMateDemo() {
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     realtimeActiveRef.current = false;
+    setVoiceMode(null);
     realtimeChannelRef.current?.close();
     realtimeChannelRef.current = null;
     realtimePcRef.current?.close();
@@ -423,6 +426,7 @@ export default function MirrorMateDemo() {
       return;
     }
     recognitionRef.current?.stop();
+    setVoiceMode("browser");
     const recognition = new Recognition();
     recognition.lang = "zh-CN";
     recognition.continuous = true;
@@ -440,7 +444,9 @@ export default function MirrorMateDemo() {
     };
     recognitionRef.current = recognition;
     setVoiceStatus("listening");
-    setVoiceTranscript("已接通：可以说“下一步”“慢一点”“再说一遍”或“救一下”。");
+    setVoiceTranscript(
+      message || "浏览器演示语音已接通：可以说“下一步”“慢一点”“再说一遍”或“救一下”。",
+    );
     try {
       recognition.start();
       speakText(`已接通语音陪练。当前是${current.title}。`);
@@ -499,16 +505,23 @@ export default function MirrorMateDemo() {
                 silence_duration_ms: 800,
                 threshold: 0.5,
               },
-              instructions: `你是 LumaMuse 光感妆伴，一位耐心、简洁、鼓励式的中文化妆陪练。用户正在练习「${t.name}」第 ${step + 1} 步「${current.title}」。给出一步一动作的可执行指导，不评价颜值，不进行医疗建议。听到“下一步、上一步、慢一点、再说一遍、救一下/画错”时先用一句简短中文回应。`,
+              instructions: `你是 LumaMuse 光感妆伴，一位专业、自然、像真人电话陪练一样交流的中文化妆教练。当前妆容是「${t.name}」，用户在第 ${step + 1} 步「${current.title}」，建议动作是「${current.instruction}」，提示是「${current.tip}」。
+
+始终先理解用户完整问题，再自然作答；用户问原因、替代手法、工具、颜色选择、左右不对称或补救时，请给出具体、可执行的解释。日常回应保持 2 到 4 句、语气温和有主见；用户要求细讲时再展开。不要只机械重复固定指令，也不要评价颜值、制造焦虑或进行医疗诊断。
+
+当听到“下一步、上一步、慢一点、再说一遍、救一下/画错”时，简短确认并围绕当前教学状态继续引导。`,
             },
           }));
         } else if (data.type === "session.updated") {
           realtimeActiveRef.current = true;
+          setVoiceMode("realtime");
           sender?.replaceTrack(track ?? null).catch(() => {});
           setVoiceStatus("listening");
           setVoiceTranscript("已接通千问实时陪练，可以自然说话或随时打断。");
         } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
           handleVoiceCommand(data.transcript);
+        } else if (data.type === "response.audio_transcript.done" && data.transcript) {
+          setVoiceTranscript(`妆伴：${data.transcript}`);
         } else if (data.type === "error") {
           setVoiceTranscript(data.error?.message || "实时语音发生错误，请重新接通。");
         }
@@ -942,7 +955,9 @@ export default function MirrorMateDemo() {
                 <b>AI 语音陪练</b>
                 <span>
                   {voiceStatus === "listening"
-                    ? "正在聆听，可随时打断"
+                    ? voiceMode === "realtime"
+                      ? "千问实时通话中，可随时打断"
+                      : "浏览器演示语音（非千问对话）"
                     : voiceStatus === "connecting"
                       ? "正在连接千问实时陪练"
                     : voiceStatus === "unsupported"

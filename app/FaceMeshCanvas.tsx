@@ -185,9 +185,10 @@ function renderLook(
   mode: Props["mode"],
   teachingZone?: string,
 ) {
-  // Camera makeup should be almost imperceptible at the contour. Keeping the
-  // pigment under 0.5 avoids the sticker-like look of flat AR masks.
-  const a = Math.max(0.07, Math.min(0.54, (intensity / 100) * 0.52));
+  // Use layered translucent pigment rather than a single opaque mask. This
+  // keeps skin texture visible while making the selected look legible on a
+  // webcam, even at the default 55% intensity.
+  const a = Math.max(0.13, Math.min(0.72, (intensity / 100) * 0.78));
   const guide = "rgba(255,255,255,.9)";
   if (mode === "teach") {
     if (look === "contour") {
@@ -238,35 +239,36 @@ function renderLook(
     // Three very soft passes mimic the subtle, camera-friendly layering used
     // by short-video makeup effects: diffuse base, darker outer corner, and
     // a tiny centre highlight. There are deliberately no hard outlines.
-    softlyFillPolygon(ctx, points, LEFT_EYE, palette[0], a * 0.48, 7, "soft-light");
-    softlyFillPolygon(ctx, points, RIGHT_EYE, palette[0], a * 0.48, 7, "soft-light");
-    const outerA = look === "smoky" ? a * 1.25 : a * 0.8;
-    polygon(
+    const baseBlend = look === "smoky" ? "source-over" : "soft-light";
+    softlyFillPolygon(ctx, points, LEFT_EYE, palette[0], a * 0.82, 6, baseBlend);
+    softlyFillPolygon(ctx, points, RIGHT_EYE, palette[0], a * 0.82, 6, baseBlend);
+    const outerA = look === "smoky" ? a * 1.05 : a * 0.72;
+    softlyFillPolygon(
       ctx,
       points,
       [33, 246, 161, 160, 159, 133, 155, 154, 153],
-      rgba(palette[1], outerA * 0.38),
-      7,
-      undefined,
+      palette[1],
+      outerA,
+      8,
       "multiply",
     );
-    polygon(
+    softlyFillPolygon(
       ctx,
       points,
       [362, 398, 384, 385, 386, 263, 249, 390, 373],
-      rgba(palette[1], outerA * 0.38),
-      7,
-      undefined,
+      palette[1],
+      outerA,
+      8,
       "multiply",
     );
-    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[0], a * 0.22, 14, "soft-light");
-    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[0], a * 0.22, 14, "soft-light");
-    polygon(ctx, points, LIPS, rgba(palette[1], a * 0.38), 4, undefined, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[0], a * 0.42, 15, "soft-light");
+    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[0], a * 0.42, 15, "soft-light");
+    polygon(ctx, points, LIPS, rgba(palette[1], a * 0.6), 4, undefined, "source-over");
   } else {
-    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[1], a * 0.38, 16, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[1], a * 0.38, 16, "multiply");
-    softlyFillPolygon(ctx, points, LEFT_JAW, palette[1], a * 0.16, 18, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_JAW, palette[1], a * 0.16, 18, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[1], a * 0.76, 15, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[1], a * 0.76, 15, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_JAW, palette[1], a * 0.34, 18, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_JAW, palette[1], a * 0.34, 18, "multiply");
   }
 }
 
