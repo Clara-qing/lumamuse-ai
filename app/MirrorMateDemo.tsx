@@ -500,10 +500,10 @@ export default function MirrorMateDemo() {
               output_audio_format: "pcm",
               input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
               turn_detection: {
-                type: "server_vad",
+                type: "semantic_vad",
                 prefix_padding_ms: 500,
-                silence_duration_ms: 800,
-                threshold: 0.5,
+                silence_duration_ms: 900,
+                threshold: 0.1,
               },
               instructions: `你是 LumaMuse 光感妆伴，一位专业、自然、像真人电话陪练一样交流的中文化妆教练。当前妆容是「${t.name}」，用户在第 ${step + 1} 步「${current.title}」，建议动作是「${current.instruction}」，提示是「${current.tip}」。
 
