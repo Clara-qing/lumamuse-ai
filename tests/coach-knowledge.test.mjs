@@ -26,6 +26,9 @@ test("provides all realtime coaching tools and a context-bound instruction", asy
   });
   assert.match(instructions, /日常消肿眼妆/);
   assert.match(instructions, /先接住用户真正的意思/);
-  assert.match(instructions, /不要把“下一步、慢一点、救一下、再说一遍”当作固定口头禅/);
+  assert.match(instructions, /不要循环提醒她“下一步”“慢一点”“救一下”“再说一遍”/);
+  assert.match(instructions, /每一轮先在心里判断用户现在需要什么/);
+  assert.match(instructions, /用户没有提出意图时，不要自行推进/);
+  assert.match(instructions, /不念说明书/);
   assert.match(instructions, /不夸大视觉能力/);
 });
