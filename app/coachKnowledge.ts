@@ -1,8 +1,10 @@
 export type FocusMode = "full" | "detail";
 
 export type StepKnowledge = {
+  goal: string;
   tool: string;
   amount: string;
+  firstPlacement: string;
   technique: string;
   stopCondition: string;
   commonMistake: string;
@@ -26,8 +28,10 @@ export type CoachSnapshot = {
 };
 
 const eyeBlend: StepKnowledge = {
+  goal: "建立柔和过渡，让后续深浅有干净的范围",
   tool: "蓬松的小号晕染刷；没有时可用干净的小号眼影刷",
   amount: "刷头轻蘸一次，先抖掉浮粉；第一遍只建立很淡的底色",
+  firstPlacement: "上睫毛根部，先从眼尾外侧的小范围开始",
   technique: "刷柄放平，手腕小幅往返，压力像扫掉桌面灰尘一样轻",
   stopCondition: "睁眼时看得到柔和层次，但边缘没有清晰色块就停止",
   commonMistake: "一次取粉太多，或为了显色反复扩大上界",
@@ -39,47 +43,59 @@ export const knowledgeByZone: Record<string, StepKnowledge> = {
   base: eyeBlend,
   outer: {
     ...eyeBlend,
+    goal: "让外眼角更有层次，并保持向内变浅的方向",
     tool: "小号扁圆眼影刷，再用干净晕染刷收边",
     amount: "只在刷尖蘸少量深色，从外眼角落第一笔",
+    firstPlacement: "外眼角，停在瞳孔外侧以后再向内带开",
     technique: "由外向内短距离拍扫，不越过瞳孔外侧；余粉再向外上方带开",
     stopCondition: "外眼角最深、向内自然变浅，而且左右方向一致就停止",
     commonMistake: "从眼中落笔导致中心过深，或眼尾向下拖",
   },
   lower: {
     ...eyeBlend,
+    goal: "连接上下眼尾，不让下眼影扩大成黑眼圈感",
     tool: "短毛细节刷或棉签尖端，不建议用大号晕染刷",
     amount: "使用上一步刷具上的余粉即可",
+    firstPlacement: "下睫毛根部外侧三分之一",
     technique: "贴着下睫毛根部连接外侧三分之一，线条由外向内变细",
     stopCondition: "下眼尾与上眼尾连通、睁眼没有明显下坠感就停止",
     commonMistake: "范围向下扩张，形成黑眼圈感",
   },
   liner: {
     ...eyeBlend,
+    goal: "让睫毛根部更完整，而不是画出一条粗眼线",
     tool: "短毛扁刷或小号斜角刷",
     amount: "蘸取一次后在手背压掉浮粉",
+    firstPlacement: "外眼角上睫毛根部，再分段向内连接",
     technique: "分三小段贴根按压，不画一条连续粗线",
     stopCondition: "睫毛根部更完整、睁眼看不见粗色块就停止",
     commonMistake: "闭眼一笔拉长，导致睁眼后线条过粗或断裂",
   },
   soften: {
     ...eyeBlend,
+    goal: "柔化最外层边界，同时保留已经建立的深浅结构",
     tool: "完全干净、无余粉的蓬松刷",
     amount: "本步骤不再取任何颜色",
+    firstPlacement: "最外层可见边界，而不是最深色中心",
     technique: "只沿最外侧边缘往返两次，不碰最深色中心",
     stopCondition: "边界看不出明确终点但深浅结构仍保留就停止",
     commonMistake: "刷得太久，把整个眼妆混成同一深度",
   },
   highlight: {
     ...eyeBlend,
+    goal: "给眼中一个小范围反光，增加层次但不盖住眼影",
     tool: "干净指腹或小号扁平刷",
     amount: "一粒米大小以内，先点一次再观察",
+    firstPlacement: "瞳孔正上方的眼皮中央",
     technique: "在瞳孔正上方轻点，边缘向两侧各拍开一次",
     stopCondition: "正面转头时出现小范围反光即可，不需要铺满眼皮",
     commonMistake: "提亮面积过大，遮掉前面的深浅层次",
   },
   cheek: {
+    goal: "做出柔和光影，不在脸颊留下明显修容线",
     tool: "中小号斜角修容刷；没有时用捏扁的腮红刷",
     amount: "刷头单侧轻蘸一次并抖掉浮粉",
+    firstPlacement: "耳前的颧骨下方；面中只使用余粉",
     technique: "从耳前落第一笔，沿参考线向内轻扫，越向面中力度越轻",
     stopCondition: "正面只见柔和阴影、看不见一条明确的线就停止",
     commonMistake: "落点过靠面中或反复叠色形成色块",
@@ -87,8 +103,10 @@ export const knowledgeByZone: Record<string, StepKnowledge> = {
     evidence: "当前为团队预置教学模板，需由化妆师复核；不是从参考图片识别出的具体手法",
   },
   jaw: {
+    goal: "让下颌到颈部的光影连续，而不是描出一条深线",
     tool: "中号修容刷或松散粉刷",
     amount: "使用少量余粉，下颌中段不重新蘸取",
+    firstPlacement: "耳下到下颌角的边缘，再向颈部带开",
     technique: "贴下颌骨扫过后向颈部带开，不把颜色堆在线上",
     stopCondition: "转头时下颌到颈部连续、没有深色断层就停止",
     commonMistake: "只画下颌线却没有向颈部晕开",
@@ -96,8 +114,10 @@ export const knowledgeByZone: Record<string, StepKnowledge> = {
     evidence: "当前为团队预置教学模板，需由化妆师复核；不是从参考图片识别出的具体手法",
   },
   scan: {
+    goal: "在稳定光线下找断层，而不是继续叠加颜色",
     tool: "镜面与稳定补光，不需要继续拿取产品",
     amount: "不加色，只检查",
+    firstPlacement: "从耳前、下颌转角和颈部边界依次检查",
     technique: "缓慢左右转头约 30 度，依次看耳前、下颌转角和颈部边界",
     stopCondition: "两侧边界连续且没有单独跳出的色块即可结束",
     commonMistake: "在光线不稳定时误以为颜色不均并继续叠加",
@@ -163,7 +183,7 @@ export function legacyCoachInstructions(snapshot: CoachSnapshot) {
 export function coachInstructions(snapshot: CoachSnapshot) {
   return `你是 LumaMuse 光感妆伴。你不是读步骤的语音菜单，而是一位坐在用户身边、会认真听她说话的中文化妆教练。唯一目标是帮助她把想要的妆效做出来，同时让她理解下一次也能复现的手法。
 
-这是本轮的内部教学状态，不要整段复述给用户：
+这是本轮的内部教学状态，不要整段复述给用户。knowledge 中的 goal、tool、amount、firstPlacement、technique、stopCondition 是本步骤唯一可当作教学事实的动作卡；commonMistake 与 rescue 只在用户追问或明确遇到问题时使用：
 ${JSON.stringify(snapshot)}
 
 每一轮先在心里判断用户现在需要什么，再回答：

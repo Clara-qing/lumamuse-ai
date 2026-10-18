@@ -9,6 +9,8 @@ test("provides all realtime coaching tools and a context-bound instruction", asy
     realtimeCoachTools.map((tool) => tool.function.name),
     ["get_coaching_context", "move_step", "set_mirror_view", "open_rescue"],
   );
+  assert.equal(typeof knowledgeByZone.outer.goal, "string");
+  assert.equal(typeof knowledgeByZone.outer.firstPlacement, "string");
   assert.equal(typeof knowledgeByZone.outer.rescue, "string");
   const instructions = coachInstructions({
     lookName: "日常消肿眼妆",
@@ -28,6 +30,7 @@ test("provides all realtime coaching tools and a context-bound instruction", asy
   assert.match(instructions, /先接住用户真正的意思/);
   assert.match(instructions, /不要循环提醒她“下一步”“慢一点”“救一下”“再说一遍”/);
   assert.match(instructions, /每一轮先在心里判断用户现在需要什么/);
+  assert.match(instructions, /唯一可当作教学事实的动作卡/);
   assert.match(instructions, /用户没有提出意图时，不要自行推进/);
   assert.match(instructions, /不念说明书/);
   assert.match(instructions, /不夸大视觉能力/);
