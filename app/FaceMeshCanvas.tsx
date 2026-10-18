@@ -158,7 +158,11 @@ function arrow(ctx: CanvasRenderingContext2D, from: NormalizedLandmark, to: Norm
   ctx.shadowColor="rgba(37,30,33,.7)";ctx.shadowBlur=5;
   ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
   ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-head*Math.cos(angle-Math.PI/6),y2-head*Math.sin(angle-Math.PI/6));ctx.lineTo(x2-head*Math.cos(angle+Math.PI/6),y2-head*Math.sin(angle+Math.PI/6));ctx.closePath();ctx.fill();
-  ctx.font="700 12px Arial";ctx.fillText(label,x1+8,y1-9);ctx.restore();
+  // The complete canvas is mirrored to make the camera behave like a mirror.
+  // Counter-mirror only glyphs so directions and labels remain readable.
+  ctx.font="700 12px Arial";
+  ctx.save();ctx.scale(-1,1);ctx.fillText(label,-(x1+8),y1-9);ctx.restore();
+  ctx.restore();
 }
 
 function drawBrushDirection(ctx:CanvasRenderingContext2D,points:NormalizedLandmark[],zone?:string){
@@ -225,11 +229,14 @@ function renderLook(
     const nose = points[1];
     ctx.fillStyle = "rgba(255,255,255,.92)";
     ctx.font = "700 13px Arial";
+    ctx.save();
+    ctx.scale(-1, 1);
     ctx.fillText(
       "当前步骤区域",
-      nose.x * ctx.canvas.width - 44,
+      -(nose.x * ctx.canvas.width - 44),
       nose.y * ctx.canvas.height - 36,
     );
+    ctx.restore();
     return;
   }
   if (look !== "contour") {
@@ -365,15 +372,7 @@ export default function FaceMeshCanvas({
               onQuality?.(quality);
             }
             if (s.showMesh) drawMesh(ctx, points);
-            renderLook(
-              ctx,
-              points,
-              s.palette,
-              s.intensity,
-              s.look,
-              s.mode,
-              s.teachingZone,
-            );
+            renderLook(ctx, points, s.palette, s.intensity, s.look, s.mode, s.teachingZone);
             if(s.brushDirection) drawBrushDirection(ctx,points,s.teachingZone);
           } else {
             previousPoints = null;

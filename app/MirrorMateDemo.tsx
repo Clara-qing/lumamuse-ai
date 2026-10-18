@@ -12,9 +12,17 @@ import FaceMeshCanvas, { FaceMeshTracker, MeshStatus } from "./FaceMeshCanvas";
 import type { FaceLandmarks, TrackingQuality } from "./FaceMeshCanvas";
 import { extractReferenceAnalysis } from "./makeupAnalysis";
 import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
+import ReferencePrecisionLab from "./ReferencePrecisionLab";
+import CloudMakeupTransfer from "./CloudMakeupTransfer";
+import {
+  coachInstructions,
+  knowledgeByZone,
+  realtimeCoachTools,
+} from "./coachKnowledge";
+import type { CoachSnapshot, FocusMode } from "./coachKnowledge";
 
 type TemplateKey = "daily" | "smoky" | "contour";
-type Stage = "upload" | "design" | "tryon" | "coach" | "finish";
+type Stage = "upload" | "design" | "precision" | "cloud" | "tryon" | "coach" | "finish";
 type VoiceStatus = "idle" | "connecting" | "listening" | "unsupported";
 type VoiceMode = "realtime" | "browser" | null;
 type SpeechRecognitionLike = {
@@ -35,7 +43,6 @@ type Step = {
   tip: string;
   zone: string;
 };
-
 const templates: Record<
   TemplateKey,
   { name: string; area: string; tags: string[]; steps: Step[] }
@@ -220,6 +227,7 @@ function directionCopy(zone: string) {
 export default function MirrorMateDemo() {
   const [stage, setStage] = useState<Stage>("upload"),
     [reference, setReference] = useState<string | null>(null),
+    [referenceFile, setReferenceFile] = useState<File | null>(null),
     [palette, setPalette] = useState(defaultPalette),
     [templateKey, setTemplateKey] = useState<TemplateKey>("daily"),
     [prompt, setPrompt] = useState("低饱和、干净、日常通勤"),
@@ -235,6 +243,7 @@ export default function MirrorMateDemo() {
       useState<TrackingQuality>("waiting"),
     [showMesh, setShowMesh] = useState(false),
     [rescue, setRescue] = useState(false),
+    [focusMode, setFocusMode] = useState<FocusMode>("full"),
     [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle"),
     [voiceMode, setVoiceMode] = useState<VoiceMode>(null),
     [voiceTranscript, setVoiceTranscript] = useState(""),
@@ -249,10 +258,28 @@ export default function MirrorMateDemo() {
     realtimePcRef = useRef<RTCPeerConnection | null>(null),
     realtimeChannelRef = useRef<RTCDataChannel | null>(null),
     realtimeAudioRef = useRef<HTMLAudioElement | null>(null),
-    realtimeActiveRef = useRef(false);
+    realtimeActiveRef = useRef(false),
+    coachSnapshotRef = useRef<CoachSnapshot | null>(null);
   const t = templates[templateKey],
     current = t.steps[step],
     progress = Math.round(((step + 1) / t.steps.length) * 100);
+  const coachSnapshot = useMemo<CoachSnapshot>(
+    () => ({
+      lookName: t.name,
+      stepIndex: step,
+      totalSteps: t.steps.length,
+      stepTitle: current.title,
+      instruction: current.instruction,
+      tip: current.tip,
+      zone: current.zone,
+      direction: directionCopy(current.zone),
+      tracking: qualityCopy(trackingQuality),
+      meshStatus: statusCopy(meshStatus),
+      focusMode,
+      knowledge: knowledgeByZone[current.zone] ?? knowledgeByZone.base,
+    }),
+    [current, focusMode, meshStatus, step, t.name, t.steps.length, trackingQuality],
+  );
   const paletteStyle = useMemo(
     () => ({ "--makeup": palette[1] }) as React.CSSProperties,
     [palette],
@@ -262,6 +289,13 @@ export default function MirrorMateDemo() {
     (q: TrackingQuality) => setTrackingQuality(q),
     [],
   );
+  useEffect(() => {
+    coachSnapshotRef.current = coachSnapshot;
+    const channel = realtimeChannelRef.current;
+    if (realtimeActiveRef.current && channel?.readyState === "open") {
+      sendRealtimeSessionUpdate(channel, coachSnapshot);
+    }
+  }, [coachSnapshot]);
   useEffect(() => {
     if (videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
@@ -284,6 +318,7 @@ export default function MirrorMateDemo() {
     if (reference) URL.revokeObjectURL(reference);
     const url = URL.createObjectURL(file);
     setReference(url);
+    setReferenceFile(file);
     const analysis = await analyzeReferenceImage(file);
     setReferenceAnalysis(analysis);
     setPalette(analysis.palette);
@@ -402,6 +437,16 @@ export default function MirrorMateDemo() {
       say(`${current.title}。${current.instruction}。我再慢一点说：${directionCopy(current.zone)}。`);
       return;
     }
+    if (/放大|看局部|局部视图/.test(cleaned)) {
+      setFocusMode("detail");
+      say("已放大当前教学局部，右侧仍保留整脸目标方便对照。");
+      return;
+    }
+    if (/整脸|缩小|退回全脸|退回整脸/.test(cleaned)) {
+      setFocusMode("full");
+      say("已退回整脸视图。");
+      return;
+    }
     if (/再说一遍|重复|没听清/.test(cleaned)) {
       if (!realtimeActiveRef.current) speak();
       return;
@@ -410,6 +455,11 @@ export default function MirrorMateDemo() {
       setRescue(true);
       setEvents((v) => [...v, "语音求助：需要补救"]);
       say("我来帮你补救。先停下，不要继续叠色，然后按补救卡完成一个小动作。 ");
+      return;
+    }
+    if (/什么刷|什么工具|怎么画|怎么晕|取多少|什么时候停|位置/.test(cleaned)) {
+      const knowledge = knowledgeByZone[current.zone] ?? knowledgeByZone.base;
+      say(`当前建议用${knowledge.tool}。${knowledge.amount}。${knowledge.technique}。${knowledge.stopCondition}`);
       return;
     }
     say(`我听到你说${transcript}。你可以说下一步、慢一点、再说一遍或救一下。`);
@@ -456,6 +506,88 @@ export default function MirrorMateDemo() {
       setVoiceTranscript("暂时无法接通麦克风，请检查浏览器权限后重试。 ");
     }
   }
+  function sendRealtimeSessionUpdate(
+    channel: RTCDataChannel,
+    snapshot: CoachSnapshot,
+  ) {
+    if (channel.readyState !== "open") return;
+    channel.send(
+      JSON.stringify({
+        event_id: `lumamuse_session_${Date.now()}`,
+        type: "session.update",
+        session: {
+          modalities: ["text", "audio"],
+          voice: "Tina",
+          input_audio_format: "pcm",
+          output_audio_format: "pcm",
+          input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
+          turn_detection: {
+            type: "semantic_vad",
+            prefix_padding_ms: 500,
+            silence_duration_ms: 900,
+            threshold: 0.1,
+          },
+          instructions: coachInstructions(snapshot),
+          tools: realtimeCoachTools,
+          tool_choice: "auto",
+        },
+      }),
+    );
+  }
+  function runRealtimeCoachTool(name: string, args: Record<string, unknown>) {
+    const snapshot = coachSnapshotRef.current ?? coachSnapshot;
+    if (name === "get_coaching_context") return snapshot;
+    if (name === "move_step") {
+      const direction = args.direction === "previous" ? "previous" : "next";
+      const requestedStep = direction === "previous"
+        ? Math.max(0, snapshot.stepIndex - 1)
+        : Math.min(snapshot.totalSteps - 1, snapshot.stepIndex + 1);
+      const changed = requestedStep !== snapshot.stepIndex;
+      setStep((value) => {
+        return direction === "previous"
+          ? Math.max(0, value - 1)
+          : Math.min(snapshot.totalSteps - 1, value + 1);
+      });
+      setRescue(false);
+      setEvents((items) => [...items, `语音切换：${direction === "previous" ? "上一步" : "下一步"}`]);
+      return { ok: true, changed, direction, message: changed ? "步骤已切换" : "已经到达边界步骤" };
+    }
+    if (name === "set_mirror_view") {
+      const mode: FocusMode = args.mode === "detail" ? "detail" : "full";
+      setFocusMode(mode);
+      setEvents((items) => [...items, mode === "detail" ? "放大当前教学局部" : "退回整脸视图"]);
+      return { ok: true, mode, message: mode === "detail" ? "操作镜头已放大当前局部，右侧仍保留整脸对照" : "操作镜头已退回整脸" };
+    }
+    if (name === "open_rescue") {
+      setRescue(true);
+      setEvents((items) => [...items, `语音求助：${String(args.problem || "当前步骤")}`]);
+      return { ok: true, rescue: snapshot.knowledge.rescue, rule: "只纠一个关键问题；视觉置信度不足时不判断完成质量" };
+    }
+    return { ok: false, error: `未知工具：${name}` };
+  }
+  function answerRealtimeTool(
+    channel: RTCDataChannel,
+    callId: string,
+    name: string,
+    rawArguments = "{}",
+  ) {
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(rawArguments) as Record<string, unknown>;
+    } catch {
+      args = {};
+    }
+    const output = runRealtimeCoachTool(name, args);
+    channel.send(JSON.stringify({
+      event_id: `lumamuse_tool_${Date.now()}`,
+      type: "conversation.item.create",
+      item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) },
+    }));
+    channel.send(JSON.stringify({
+      event_id: `lumamuse_response_${Date.now()}`,
+      type: "response.create",
+    }));
+  }
   async function startVoiceCoach() {
     if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
       startBrowserVoiceCoach("当前浏览器不支持实时通话，已切换至浏览器语音模式。");
@@ -487,31 +619,17 @@ export default function MirrorMateDemo() {
         }
       };
       channel.onmessage = (event) => {
-        let data: { type?: string; transcript?: string; error?: { message?: string } };
+        let data: {
+          type?: string;
+          transcript?: string;
+          name?: string;
+          arguments?: string;
+          call_id?: string;
+          error?: { message?: string };
+        };
         try { data = JSON.parse(event.data); } catch { return; }
         if (data.type === "session.created") {
-          channel.send(JSON.stringify({
-            event_id: `lumamuse_${Date.now()}`,
-            type: "session.update",
-            session: {
-              modalities: ["text", "audio"],
-              voice: "Tina",
-              input_audio_format: "pcm",
-              output_audio_format: "pcm",
-              input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
-              turn_detection: {
-                type: "semantic_vad",
-                prefix_padding_ms: 500,
-                silence_duration_ms: 900,
-                threshold: 0.1,
-              },
-              instructions: `你是 LumaMuse 光感妆伴，一位专业、自然、像真人电话陪练一样交流的中文化妆教练。当前妆容是「${t.name}」，用户在第 ${step + 1} 步「${current.title}」，建议动作是「${current.instruction}」，提示是「${current.tip}」。
-
-始终先理解用户完整问题，再自然作答；用户问原因、替代手法、工具、颜色选择、左右不对称或补救时，请给出具体、可执行的解释。日常回应保持 2 到 4 句、语气温和有主见；用户要求细讲时再展开。不要只机械重复固定指令，也不要评价颜值、制造焦虑或进行医疗诊断。
-
-当听到“下一步、上一步、慢一点、再说一遍、救一下/画错”时，简短确认并围绕当前教学状态继续引导。`,
-            },
-          }));
+          sendRealtimeSessionUpdate(channel, coachSnapshotRef.current ?? coachSnapshot);
         } else if (data.type === "session.updated") {
           realtimeActiveRef.current = true;
           setVoiceMode("realtime");
@@ -519,7 +637,14 @@ export default function MirrorMateDemo() {
           setVoiceStatus("listening");
           setVoiceTranscript("已接通千问实时陪练，可以自然说话或随时打断。");
         } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
-          handleVoiceCommand(data.transcript);
+          setVoiceTranscript(`你说：“${data.transcript}”`);
+        } else if (
+          data.type === "response.function_call_arguments.done" &&
+          data.name &&
+          data.call_id
+        ) {
+          setVoiceTranscript(`妆伴正在读取：${data.name}`);
+          answerRealtimeTool(channel, data.call_id, data.name, data.arguments);
         } else if (data.type === "response.audio_transcript.done" && data.transcript) {
           setVoiceTranscript(`妆伴：${data.transcript}`);
         } else if (data.type === "error") {
@@ -572,6 +697,7 @@ export default function MirrorMateDemo() {
     streamRef.current = null;
     if (reference) URL.revokeObjectURL(reference);
     setReference(null);
+    setReferenceFile(null);
     setPalette(defaultPalette);
     setTemplateKey("daily");
     setPrompt("低饱和、干净、日常通勤");
@@ -583,6 +709,7 @@ export default function MirrorMateDemo() {
     setMeshStatus("idle");
     setTrackingQuality("waiting");
     setShowMesh(false);
+    setFocusMode("full");
     setStage("upload");
     setStep(0);
     setRescue(false);
@@ -600,7 +727,7 @@ export default function MirrorMateDemo() {
             <i />
             本地隐私模式
           </span>
-          <span className="prototype-badge">实时 3D 试妆</span>
+          <span className="prototype-badge">本地落点辅助 · 云端静态预览</span>
         </div>
       </header>
       {stage === "upload" && (
@@ -613,7 +740,7 @@ export default function MirrorMateDemo() {
               再真正学会。
             </h1>
             <p className="lead">
-              上传喜欢的妆效或直接描述风格。LumaMuse 把它映射到你的实时面部网格，满意后再一步步教你完成。
+              上传喜欢的妆效，先生成一张真实感静态预览，再进入本地的面部定位与分区跟练。
             </p>
             <label className="upload-cta">
               <input type="file" accept="image/*" onChange={onFile} />
@@ -624,11 +751,27 @@ export default function MirrorMateDemo() {
               没有图片？用文字描述风格 →
             </button>
           </div>
-          <DemoFace look="daily" palette={palette} />
+          <div className="hero-editorial" aria-label="BeautyCue 对镜化妆场景">
+            <img
+              src="https://images.pexels.com/photos/8956115/pexels-photo-8956115.jpeg?auto=compress&cs=tinysrgb&w=1200"
+              alt="女性在镜前使用化妆刷"
+            />
+            <div className="hero-shade" />
+            <span className="hero-live"><i /> 478 点实时定位</span>
+            <div className="hero-note hero-note-top">
+              <small>当前教学区域</small>
+              <b>面颊 · 向上晕染</b>
+            </div>
+            <div className="hero-note hero-note-bottom">
+              <small>不用盲猜落点</small>
+              <b>参考图变成可跟练的方向</b>
+            </div>
+            <p>BeautyCue visual archive · Pexels</p>
+          </div>
           <div className="capabilities">
             <div>
               <b>01</b>
-              <span>图片 / 文字生妆效</span>
+              <span>图片生成静态预览</span>
             </div>
             <div>
               <b>02</b>
@@ -653,7 +796,7 @@ export default function MirrorMateDemo() {
               <h2>你想试什么感觉？</h2>
             </div>
             <p>
-              参考图提供颜色，文字提供气质。系统生成可编辑的视觉解释，不冒充原作者真实产品与手法。
+              参考图先用于生成静态试妆预览；本地网格只做落点与教学辅助，不把图形覆盖层称为真实试妆。
             </p>
           </div>
           <div className="design-grid">
@@ -667,7 +810,9 @@ export default function MirrorMateDemo() {
                 </div>
               )}
               <div className="image-label">
-                {reference ? "参考图仅本地读取" : "没有上传图片"}
+                {reference
+                  ? "参考图仅本地读取"
+                  : "没有上传图片"}
               </div>
             </div>
             <div className="style-builder">
@@ -720,6 +865,14 @@ export default function MirrorMateDemo() {
                   </small>
                 </div>
               )}
+              {reference && (
+                <button className="interpret-button" onClick={() => setStage("precision")}>
+                  先校准七分区落点
+                </button>
+              )}
+              <button className="cloud-button" onClick={() => setStage("cloud")}>
+                生成真实感静态试妆预览
+              </button>
               <button
                 className="interpret-button"
                 onClick={() => interpretStyle()}
@@ -735,6 +888,7 @@ export default function MirrorMateDemo() {
                 key={key}
                 className={`template-card ${templateKey === key ? "selected" : ""}`}
                 onClick={() => {
+                  setSharedTutorial(null);
                   setTemplateKey(key);
                   setPromptDirty(false);
                 }}
@@ -751,10 +905,28 @@ export default function MirrorMateDemo() {
               返回
             </button>
             <button className="primary" onClick={startTryOn}>
-              开启摄像头，实时试妆
+              开启摄像头，查看本地落点辅助
             </button>
           </div>
         </section>
+      )}
+      {stage === "precision" && reference && (
+        <ReferencePrecisionLab
+          imageUrl={reference}
+          onBack={() => setStage("design")}
+          onConfirm={() => {
+            setEvents((items) => [...items, "已确认参考图的七分区相对落点"]);
+            startTryOn();
+          }}
+        />
+      )}
+      {stage === "cloud" && (
+        <CloudMakeupTransfer
+          referenceFile={referenceFile}
+          referenceUrl={reference}
+          onBack={() => setStage("design")}
+          onUseAsGoal={() => startTryOn()}
+        />
       )}
       {stage === "tryon" && (
         <section className="tryon-layout">
@@ -762,13 +934,13 @@ export default function MirrorMateDemo() {
             <p className="kicker">STEP 2 · 实时试妆</p>
             <h2>{t.name}</h2>
             <p>
-              转头、靠近或远离镜头，妆效会跟随面部网格。先调整到你满意，再把这个版本变成教学目标。
+              这里显示的是本地面部定位与落点辅助。它会随网格移动，但不是已实现的真实妆容迁移；真实感效果请先使用上一页静态预览判断方向。
             </p>
             <div className="mesh-status">
               <i className={meshStatus} />
               <div>
                 <b>{statusCopy(meshStatus)}</b>
-                <span>在本设备实时计算，不上传视频帧</span>
+                <span>面部关键点仅在本设备实时计算</span>
               </div>
             </div>
             <div className={`calibration ${trackingQuality}`}>
@@ -822,12 +994,9 @@ export default function MirrorMateDemo() {
                 trackingQuality !== "ready"
               }
             >
-              我满意，用这个妆效教我
+              用这个教学方向开始跟练
             </button>
-            <p className="prototype-note">
-              实时定位来自 MediaPipe 478
-              点面部网格；妆效为参考色与风格关键词的参数化视觉解释。
-            </p>
+            <p className="prototype-note">实时定位来自 MediaPipe 478 点面部网格；屏幕上的颜色仅是落点辅助，不代表真实妆容迁移。</p>
           </div>
           <LiveMirror
             camera={camera}
@@ -894,8 +1063,25 @@ export default function MirrorMateDemo() {
             </div>
           </aside>
           <div className="mirror-stage dual-mirror-stage">
+            <div className="mirror-view-controls" aria-label="镜面视图">
+              <span>操作镜头</span>
+              <button
+                className={focusMode === "full" ? "active" : ""}
+                onClick={() => setFocusMode("full")}
+              >
+                整脸
+              </button>
+              <button
+                className={focusMode === "detail" ? "active" : ""}
+                onClick={() => setFocusMode("detail")}
+              >
+                放大当前局部
+              </button>
+            </div>
             <div className="coach-mirror-cell">
-              <p className="coach-view-label">操作镜头 · 按箭头上妆</p>
+              <p className="coach-view-label">
+                操作镜头 · {focusMode === "detail" ? "当前局部已放大" : "按箭头上妆"}
+              </p>
             <LiveMirror
               camera={camera}
               videoRef={guideVideoRef}
@@ -911,6 +1097,8 @@ export default function MirrorMateDemo() {
               brushDirection={current.zone}
               landmarksRef={coachLandmarksRef}
               onQuality={onTrackingQuality}
+              focusMode={focusMode}
+              focusZone={current.zone}
             />
             </div>
             <div className="coach-mirror-cell target-look-cell">
@@ -1038,7 +1226,7 @@ export default function MirrorMateDemo() {
             </div>
             <div>
               <span>隐私状态</span>
-              <b className="safe">图片与视频未上传</b>
+              <b className="safe">本地图片已在结束时清除</b>
             </div>
           </div>
           <div className="event-log">
@@ -1080,6 +1268,8 @@ function LiveMirror({
   brushDirection,
   landmarksRef,
   onQuality,
+  focusMode = "full",
+  focusZone,
 }: {
   camera: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -1095,6 +1285,8 @@ function LiveMirror({
   brushDirection?: string;
   landmarksRef?: React.RefObject<FaceLandmarks | null>;
   onQuality: (q: TrackingQuality) => void;
+  focusMode?: FocusMode;
+  focusZone?: string;
 }) {
   const fallback = !camera || meshStatus === "fallback";
   useEffect(() => {
@@ -1104,7 +1296,9 @@ function LiveMirror({
     }
   }, [stream, videoRef]);
   return (
-    <div className={`live-mirror ${camera && !fallback ? "camera-on" : ""}`}>
+    <div
+      className={`live-mirror ${camera && !fallback ? "camera-on" : ""} ${focusMode === "detail" ? `detail-focus focus-${focusZone ?? "base"}` : ""}`}
+    >
       <div className="mirror-top">
         <span>
           <i />
