@@ -126,7 +126,157 @@ export const knowledgeByZone: Record<string, StepKnowledge> = {
   },
 };
 
+export type TeachingKnowledgeEntry = {
+  id: string;
+  title: string;
+  keywords: string[];
+  guidance: string[];
+  safety?: string;
+};
+
+// Derived from the team's MAKEUP_TEACHING_KNOWLEDGE_BASE.md. These are short,
+// reviewable retrieval cards rather than a hidden copy of a long document in
+// every model turn. Each card is intentionally about technique, not product
+// diagnosis or a judgement about the user's features.
+export const teachingKnowledgeBase: TeachingKnowledgeEntry[] = [
+  {
+    id: "safety",
+    title: "不适与工具卫生",
+    keywords: ["刺痛", "红肿", "不适", "眼睛痛", "过敏", "卫生", "共用", "感染"],
+    guidance: [
+      "出现刺痛、红肿、持续不适或眼部不适时，立即停止当前产品，不继续上妆。",
+      "眼唇工具和一次性用品不要在多人之间直接共用。",
+    ],
+    safety: "不做医学判断；症状持续或加重时应咨询专业医疗人员。",
+  },
+  {
+    id: "prep",
+    title: "妆前与防晒后的表面管理",
+    keywords: ["妆前", "防晒", "起皮", "干", "油", "敏感", "搓泥", "保湿"],
+    guidance: [
+      "偏干或有起皮感时，薄涂已经用过的保湿产品，等表面不黏再上妆；局部先按压，不用粉底硬盖皮屑。",
+      "偏油也保留薄保湿，易出油区少量控油；防晒后等膜感稳定，后续以按压上妆为主。",
+      "卡粉或浮粉先确认是刚上底妆就发生，还是过一会儿才出现；一次只追问这一项。",
+    ],
+    safety: "首次使用或敏感不确定时，只建议已试用过的温和产品，不根据聊天自行混用强功效产品。",
+  },
+  {
+    id: "foundation",
+    title: "底妆薄层与边缘",
+    keywords: ["底妆", "粉底", "气垫", "粉扑", "斑驳", "鼻翼", "脖子", "厚", "脱妆"],
+    guidance: [
+      "先把少量粉底在手背或工具上摊成薄层，从两颊、鼻周和额头中央向外轻拍或短推。",
+      "发际线、下颌和鼻翼边缘只用工具余量带开；边缘厚时用干净粉扑轻压，不加新粉底。",
+      "底妆目标是均匀和保留纹理，不用一层覆盖所有瑕疵；局部问题留给遮瑕。",
+    ],
+  },
+  {
+    id: "concealer-setting",
+    title: "遮瑕与定妆",
+    keywords: ["遮瑕", "黑眼圈", "痘印", "泛红", "定妆", "散粉", "出油", "补妆"],
+    guidance: [
+      "遮瑕只点在最明显的中心，再用无名指或粉扑尖端向边缘小范围轻拍，别铺满整个区域。",
+      "眼下过厚或过亮时，先用干净粉扑压最厚处，再用少量原底妆从边缘过渡。",
+      "补妆先按走油，再少量压粉；有油时直接叠粉容易结块。",
+    ],
+  },
+  {
+    id: "brow",
+    title: "眉毛的方向与浓淡",
+    keywords: ["眉毛", "眉笔", "眉尾", "眉头", "眉峰", "画眉", "眉毛太深"],
+    guidance: [
+      "先顺毛流梳理，再从眉尾向眉峰画短线确定长度和方向；中段只补二到四根短毛流。",
+      "眉头不重新取色，用余粉向上轻扫，保持最淡最散。",
+      "眉尾太深先用螺旋刷减淡颜色或只清理末端，不用继续加长来求平衡。",
+    ],
+  },
+  {
+    id: "eyes",
+    title: "眼妆范围与眼线睫毛",
+    keywords: ["眼影", "眼线", "睫毛", "眼尾", "下眼影", "晕染", "眼妆", "烟熏"],
+    guidance: [
+      "眼影默认先打底、再加深、最后柔化；深色范围始终小于打底范围。",
+      "下眼尾只用余粉贴近下睫毛根部外侧三分之一连接，不向下扩张。",
+      "眼线贴根分小段填补，不一笔拉到底；眼部不适立刻停止。",
+    ],
+  },
+  {
+    id: "contour",
+    title: "鼻影与面部修容",
+    keywords: ["鼻影", "修容", "颧骨", "下颌", "脸小", "立体", "阴影", "高光鼻子"],
+    guidance: [
+      "修容第一笔放在最需要深度的位置，后续向边缘变淡；首次只做一层，退远看整脸再判断。",
+      "鼻影从眉头下方或眼窝与鼻梁的转折处少量向下带，中段更淡；正面应像阴影而非两条线。",
+      "颧骨修容从耳前向面中轻扫，面中只留余粉；下颌扫过后向颈部带开。",
+    ],
+  },
+  {
+    id: "blush-highlight",
+    title: "腮红与高光的方向和面积",
+    keywords: ["腮红", "高光", "气色", "晒伤", "横向", "上扬", "颧骨高光"],
+    guidance: [
+      "先选想要的方向再定面积：提升感从较高、偏外处向上向外；横向感从面中偏外向外带。",
+      "刷头单侧轻蘸并抖粉，从高点或外侧落第一笔，越到边缘压力越轻。",
+      "腮红过重先用带底妆余量的干净粉扑轻拍边缘或用空刷柔化，不立刻用大量散粉覆盖。",
+    ],
+  },
+  {
+    id: "lips",
+    title: "唇妆与出界处理",
+    keywords: ["口红", "唇妆", "唇线", "唇釉", "嘴唇", "出界", "咬唇"],
+    guidance: [
+      "先在上下唇中央少量落色，再向两侧推开，边缘最后处理。",
+      "想要清晰轮廓时，从唇峰或嘴角分小段连接；想要咬唇感时，用指腹或棉签向外拍开中心。",
+      "出界先用棉签向内擦除，必要时局部补底妆，不反复来回涂到结块。",
+    ],
+  },
+  {
+    id: "review-rescue",
+    title: "最终检查与通用补救",
+    keywords: ["画重", "画脏", "不均匀", "左右", "断层", "补救", "检查", "不对称", "结块"],
+    guidance: [
+      "颜色过重先停止加色，用干净工具从边缘带开；边界硬只处理最外缘一到两次。",
+      "位置偏移先擦除或用底妆余量修边，不在错误旁边叠一块来凑对称。",
+      "在稳定光线下后退半步看整脸，再左右转头约三十度检查耳前、下颌和边缘；同一问题补救两次仍不满意就停止叠色。",
+    ],
+  },
+];
+
+export function searchTeachingKnowledge(query: string, limit = 2) {
+  const normalized = query.trim().toLowerCase();
+  const matches = teachingKnowledgeBase
+    .map((entry) => ({
+      entry,
+      score: entry.keywords.reduce((score, keyword) => score + (normalized.includes(keyword) ? keyword.length : 0), 0),
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ entry }) => ({
+      topic: entry.title,
+      guidance: entry.guidance,
+      ...(entry.safety ? { safety: entry.safety } : {}),
+      source: "团队教学知识库初稿，正式演示前需由有实操经验的化妆师复核。",
+    }));
+  return matches.length > 0
+    ? { found: true, entries: matches }
+    : { found: false, message: "知识库没有对应的已复核动作卡。不要编造具体手法；请结合当前步骤给一个保守、可逆的小动作，或向用户追问一个细节。" };
+}
+
 export const realtimeCoachTools = [
+  {
+    type: "function",
+    function: {
+      name: "search_teaching_knowledge",
+      description: "当用户询问当前步骤之外的具体化妆问题、妆前底妆眉毛鼻影腮红唇妆、常见问题或安全卫生问题时，检索团队教学知识库。不要用于闲聊、当前动作卡已经充分回答的问题或切换步骤。",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "用用户原话概括要查的化妆问题。" } },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -192,10 +342,12 @@ ${JSON.stringify(snapshot)}
 3. 说画重了、画脏了、越界或不均匀：先让她停止叠加，再给当前步骤可执行的补救；必要时才打开补救卡。
 4. 明确说“下一步、上一步、放大、整脸”：调用对应工具，得到结果后用一句自然的话衔接，不要重复口令本身。
 5. 说赶时间、想简单些：在不改变目标妆效核心的前提下，说明可跳过的非关键步骤和保留的一个重点。
+6. 用户问的是当前动作卡以外的具体问题（例如卡粉、底妆、眉毛、鼻影、腮红、唇妆、卫生或不适）：调用 search_teaching_knowledge，严格依据返回的条目回答。不要把整个知识库或 source 文本念给用户。
 
 自然对话原则：
 - 先接住用户真正的意思，再给建议。用户说“有点重”“不敢下手”“这样对吗”“今天赶时间”时，先回应她的感受或限制，再给一件现在就能做的事。
 - 当前教学资料已经在上方。不要为了说话而调用 get_coaching_context；只有信息不足且用户正在问具体教学细节时才调用它。不要把工具名说出来。
+- 若检索结果标注安全边界，优先告诉用户停止当前可能刺激的动作或产品；不诊断病因，也不承诺具体产品一定兼容。
 - 只有在用户明确想切换步骤、放大或整脸、或需要打开补救卡时调用相应工具。用户没有提出意图时，不要自行推进，也不要循环提醒她“下一步”“慢一点”“救一下”“再说一遍”。
 - 不用客服开场白、编号清单或固定结束问句。不要每句都说“好的”“没问题”“你可以说……”。用户没提问时，可以安静等她，而不是主动播报。
 - 用户问泛问题、闲聊或表达焦虑时，可以正常聊天；若确实需要澄清，只问一个贴近她刚才表述的短问题，例如“你更担心颜色太深，还是范围会画大？”。

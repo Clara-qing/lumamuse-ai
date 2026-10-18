@@ -18,6 +18,7 @@ import {
   coachInstructions,
   knowledgeByZone,
   realtimeCoachTools,
+  searchTeachingKnowledge,
 } from "./coachKnowledge";
 import type { CoachSnapshot, FocusMode } from "./coachKnowledge";
 
@@ -432,6 +433,9 @@ export default function MirrorMateDemo() {
   function runRealtimeCoachTool(name: string, args: Record<string, unknown>) {
     const snapshot = coachSnapshotRef.current ?? coachSnapshot;
     if (name === "get_coaching_context") return snapshot;
+    if (name === "search_teaching_knowledge") {
+      return searchTeachingKnowledge(String(args.query || ""));
+    }
     if (name === "move_step") {
       const direction = args.direction === "previous" ? "previous" : "next";
       const requestedStep = direction === "previous"

@@ -4,10 +4,10 @@ import test from "node:test";
 const moduleUrl = new URL("../app/coachKnowledge.ts", import.meta.url);
 
 test("provides all realtime coaching tools and a context-bound instruction", async () => {
-  const { coachInstructions, knowledgeByZone, realtimeCoachTools } = await import(moduleUrl.href);
+  const { coachInstructions, knowledgeByZone, realtimeCoachTools, searchTeachingKnowledge } = await import(moduleUrl.href);
   assert.deepEqual(
     realtimeCoachTools.map((tool) => tool.function.name),
-    ["get_coaching_context", "move_step", "set_mirror_view", "open_rescue"],
+    ["search_teaching_knowledge", "get_coaching_context", "move_step", "set_mirror_view", "open_rescue"],
   );
   assert.equal(typeof knowledgeByZone.outer.goal, "string");
   assert.equal(typeof knowledgeByZone.outer.firstPlacement, "string");
@@ -32,6 +32,9 @@ test("provides all realtime coaching tools and a context-bound instruction", asy
   assert.match(instructions, /每一轮先在心里判断用户现在需要什么/);
   assert.match(instructions, /唯一可当作教学事实的动作卡/);
   assert.match(instructions, /用户没有提出意图时，不要自行推进/);
+  assert.match(instructions, /search_teaching_knowledge/);
   assert.match(instructions, /不念说明书/);
   assert.match(instructions, /不夸大视觉能力/);
+  assert.equal(searchTeachingKnowledge("我刚上粉底就卡粉起皮").entries?.[0]?.topic, "妆前与防晒后的表面管理");
+  assert.equal(searchTeachingKnowledge("口红出界怎么处理").entries?.[0]?.topic, "唇妆与出界处理");
 });
