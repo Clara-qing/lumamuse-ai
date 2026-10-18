@@ -25,5 +25,7 @@ test("provides all realtime coaching tools and a context-bound instruction", asy
     knowledge: knowledgeByZone.outer,
   });
   assert.match(instructions, /日常消肿眼妆/);
-  assert.match(instructions, /视觉只可靠提供面部关键点/);
+  assert.match(instructions, /先接住用户真正的意思/);
+  assert.match(instructions, /不要把“下一步、慢一点、救一下、再说一遍”当作固定口头禅/);
+  assert.match(instructions, /不夸大视觉能力/);
 });

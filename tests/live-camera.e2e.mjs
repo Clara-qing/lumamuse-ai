@@ -17,7 +17,7 @@ await run("ffmpeg",["-y","-loop","1","-i",portrait,"-vf","crop=700:700:60:120,sc
 
 const server=spawn(process.execPath,[join(root,"node_modules/vinext/dist/cli.js"),"dev","--port","4173"],{cwd:root,env:{...process.env,WRANGLER_LOG_PATH:join(temp,"wrangler.log")},stdio:["ignore","inherit","inherit"]});
 try{
-  for(let i=0;i<60;i++){try{const r=await fetch("http://localhost:4173");if(r.ok)break}catch{}await new Promise(r=>setTimeout(r,500));if(i===59)throw new Error("preview server did not start")}
+  for(let i=0;i<60;i++){try{const r=await fetch("http://localhost:4173");if(r.ok)break}catch{ /* wait for the local preview server */ }await new Promise(r=>setTimeout(r,500));if(i===59)throw new Error("preview server did not start")}
   const browser=await chromium.launch({executablePath:"/usr/bin/google-chrome",headless:true,args:["--use-fake-device-for-media-stream","--use-fake-ui-for-media-stream",`--use-file-for-fake-video-capture=${video}`,"--enable-webgl","--ignore-gpu-blocklist"]});
   const context=await browser.newContext({permissions:["camera"],viewport:{width:1440,height:1000}});
   const page=await context.newPage();

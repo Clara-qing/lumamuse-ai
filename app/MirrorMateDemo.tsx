@@ -23,19 +23,7 @@ import type { CoachSnapshot, FocusMode } from "./coachKnowledge";
 
 type TemplateKey = "daily" | "smoky" | "contour";
 type Stage = "upload" | "design" | "precision" | "cloud" | "tryon" | "coach" | "finish";
-type VoiceStatus = "idle" | "connecting" | "listening" | "unsupported";
-type VoiceMode = "realtime" | "browser" | null;
-type SpeechRecognitionLike = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  start: () => void;
-  stop: () => void;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-};
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type VoiceStatus = "idle" | "connecting" | "listening" | "error";
 type Step = {
   title: string;
   short: string;
@@ -245,14 +233,12 @@ export default function MirrorMateDemo() {
     [rescue, setRescue] = useState(false),
     [focusMode, setFocusMode] = useState<FocusMode>("full"),
     [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle"),
-    [voiceMode, setVoiceMode] = useState<VoiceMode>(null),
     [voiceTranscript, setVoiceTranscript] = useState(""),
     [events, setEvents] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null),
     guideVideoRef = useRef<HTMLVideoElement>(null),
     previewVideoRef = useRef<HTMLVideoElement>(null),
     coachLandmarksRef = useRef<FaceLandmarks | null>(null),
-    recognitionRef = useRef<SpeechRecognitionLike | null>(null),
     streamRef = useRef<MediaStream | null>(null),
     voiceStreamRef = useRef<MediaStream | null>(null),
     realtimePcRef = useRef<RTCPeerConnection | null>(null),
@@ -305,7 +291,6 @@ export default function MirrorMateDemo() {
   useEffect(
     () => () => {
       streamRef.current?.getTracks().forEach((x) => x.stop());
-      recognitionRef.current?.stop();
       voiceStreamRef.current?.getTracks().forEach((x) => x.stop());
       realtimeChannelRef.current?.close();
       realtimePcRef.current?.close();
@@ -396,10 +381,7 @@ export default function MirrorMateDemo() {
     speakText(`${current.title}。${current.instruction}`);
   }
   function stopVoiceCoach() {
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
     realtimeActiveRef.current = false;
-    setVoiceMode(null);
     realtimeChannelRef.current?.close();
     realtimeChannelRef.current = null;
     realtimePcRef.current?.close();
@@ -413,99 +395,6 @@ export default function MirrorMateDemo() {
     }
     setVoiceStatus("idle");
   }
-  function handleVoiceCommand(transcript: string) {
-    const cleaned = transcript.replace(/\s/g, "");
-    const say = (text: string) => {
-      if (!realtimeActiveRef.current) speakText(text);
-    };
-    setVoiceTranscript(`你说：“${transcript}”`);
-    if (/上一步|返回/.test(cleaned)) {
-      if (step > 0) setStep(step - 1);
-      say(step > 0 ? "好的，回到上一步。" : "这已经是第一步。 ");
-      return;
-    }
-    if (/下一步|继续|完成/.test(cleaned)) {
-      if (step < t.steps.length - 1) {
-        next();
-        say(`好的，下一步是${t.steps[step + 1].title}。${t.steps[step + 1].instruction}`);
-      } else {
-        say("你已经完成全部步骤，可以点击完成练习查看复盘。 ");
-      }
-      return;
-    }
-    if (/慢一点|放慢/.test(cleaned)) {
-      say(`${current.title}。${current.instruction}。我再慢一点说：${directionCopy(current.zone)}。`);
-      return;
-    }
-    if (/放大|看局部|局部视图/.test(cleaned)) {
-      setFocusMode("detail");
-      say("已放大当前教学局部，右侧仍保留整脸目标方便对照。");
-      return;
-    }
-    if (/整脸|缩小|退回全脸|退回整脸/.test(cleaned)) {
-      setFocusMode("full");
-      say("已退回整脸视图。");
-      return;
-    }
-    if (/再说一遍|重复|没听清/.test(cleaned)) {
-      if (!realtimeActiveRef.current) speak();
-      return;
-    }
-    if (/救一下|出界|画错/.test(cleaned)) {
-      setRescue(true);
-      setEvents((v) => [...v, "语音求助：需要补救"]);
-      say("我来帮你补救。先停下，不要继续叠色，然后按补救卡完成一个小动作。 ");
-      return;
-    }
-    if (/什么刷|什么工具|怎么画|怎么晕|取多少|什么时候停|位置/.test(cleaned)) {
-      const knowledge = knowledgeByZone[current.zone] ?? knowledgeByZone.base;
-      say(`当前建议用${knowledge.tool}。${knowledge.amount}。${knowledge.technique}。${knowledge.stopCondition}`);
-      return;
-    }
-    say(`我听到你说${transcript}。你可以说下一步、慢一点、再说一遍或救一下。`);
-  }
-  function startBrowserVoiceCoach(message = "") {
-    const browser = window as typeof window & {
-      SpeechRecognition?: SpeechRecognitionConstructor;
-      webkitSpeechRecognition?: SpeechRecognitionConstructor;
-    };
-    const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
-    if (!Recognition) {
-      setVoiceStatus("unsupported");
-      setVoiceTranscript(message || "当前浏览器未提供语音识别；仍可使用朗读和按钮。 ");
-      return;
-    }
-    recognitionRef.current?.stop();
-    setVoiceMode("browser");
-    const recognition = new Recognition();
-    recognition.lang = "zh-CN";
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.onresult = (event) => {
-      const transcript = event.results[event.results.length - 1]?.[0]?.transcript;
-      if (transcript) handleVoiceCommand(transcript);
-    };
-    recognition.onend = () => {
-      if (recognitionRef.current === recognition) setVoiceStatus("idle");
-    };
-    recognition.onerror = () => {
-      setVoiceStatus("idle");
-      setVoiceTranscript("没有听清，点击后可以重新接通。 ");
-    };
-    recognitionRef.current = recognition;
-    setVoiceStatus("listening");
-    setVoiceTranscript(
-      message || "浏览器演示语音已接通：可以说“下一步”“慢一点”“再说一遍”或“救一下”。",
-    );
-    try {
-      recognition.start();
-      speakText(`已接通语音陪练。当前是${current.title}。`);
-    } catch {
-      recognitionRef.current = null;
-      setVoiceStatus("idle");
-      setVoiceTranscript("暂时无法接通麦克风，请检查浏览器权限后重试。 ");
-    }
-  }
   function sendRealtimeSessionUpdate(
     channel: RTCDataChannel,
     snapshot: CoachSnapshot,
@@ -517,7 +406,7 @@ export default function MirrorMateDemo() {
           modalities: ["text", "audio"],
           audio: {
             input: { format: { type: "pcm", sample_rate: 16000 } },
-            output: { format: { type: "pcm", sample_rate: 24000 }, voice: "Tina" },
+            output: { format: { type: "pcm", sample_rate: 24000 }, voice: "longanlingxin" },
           },
           input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
           turn_detection: {
@@ -528,8 +417,8 @@ export default function MirrorMateDemo() {
           },
           instructions: coachInstructions(snapshot),
           tools: realtimeCoachTools,
-          temperature: 0.7,
-          max_tokens: 360,
+          temperature: 0.9,
+          max_tokens: 480,
         }
       : { instructions: coachInstructions(snapshot) };
     channel.send(
@@ -596,7 +485,8 @@ export default function MirrorMateDemo() {
   }
   async function startVoiceCoach() {
     if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
-      startBrowserVoiceCoach("当前浏览器不支持实时通话，已切换至浏览器语音模式。");
+      setVoiceStatus("error");
+      setVoiceTranscript("当前浏览器不支持千问实时通话。请使用支持 WebRTC 的现代浏览器后重试。");
       return;
     }
     stopVoiceCoach();
@@ -644,7 +534,6 @@ export default function MirrorMateDemo() {
         } else if (data.type === "session.updated") {
           if (!realtimeActiveRef.current) {
             realtimeActiveRef.current = true;
-            setVoiceMode("realtime");
             setVoiceStatus("listening");
             setVoiceTranscript("已接通千问实时陪练。你可以像和朋友聊天一样说话，也可以随时打断。");
           }
@@ -660,7 +549,8 @@ export default function MirrorMateDemo() {
         } else if (data.type === "response.audio_transcript.done" && data.transcript) {
           setVoiceTranscript(`妆伴：${data.transcript}`);
         } else if (data.type === "error") {
-          setVoiceTranscript(data.error?.message || "实时语音发生错误，请重新接通。");
+          setVoiceStatus("error");
+          setVoiceTranscript(`千问实时通话发生错误：${data.error?.message || "请点击重试。"}`);
         }
       };
       const offer = await pc.createOffer();
@@ -689,7 +579,8 @@ export default function MirrorMateDemo() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "实时语音暂时不可用";
       stopVoiceCoach();
-      startBrowserVoiceCoach(`实时模式未接通：${message}。已切换至浏览器语音模式。`);
+      setVoiceStatus("error");
+      setVoiceTranscript(`千问实时通话未接通：${message}。请检查麦克风权限后重试。`);
     }
   }
   function next() {
@@ -1154,20 +1045,18 @@ export default function MirrorMateDemo() {
                 <b>AI 语音陪练</b>
                 <span>
                   {voiceStatus === "listening"
-                    ? voiceMode === "realtime"
-                      ? "千问实时通话中，可随时打断"
-                      : "浏览器演示语音（非千问对话）"
+                    ? "千问实时通话中，可像和朋友一样自然聊天"
                     : voiceStatus === "connecting"
                       ? "正在连接千问实时陪练"
-                    : voiceStatus === "unsupported"
-                      ? "此浏览器不支持语音识别"
-                      : "千问实时通话 · 浏览器语音降级"}
+                    : voiceStatus === "error"
+                      ? "千问未接通，未启用浏览器规则语音"
+                      : "接通千问实时陪练"}
                 </span>
               </div>
               {voiceStatus === "listening" || voiceStatus === "connecting" ? (
                 <button className="voice-hangup" onClick={stopVoiceCoach}>挂断</button>
               ) : (
-                <button className="voice-connect" onClick={startVoiceCoach}>接通</button>
+                <button className="voice-connect" onClick={startVoiceCoach}>{voiceStatus === "error" ? "重试" : "接通"}</button>
               )}
               {voiceTranscript && <p className="voice-transcript">{voiceTranscript}</p>}
             </div>
