@@ -43,3 +43,4 @@ yarn-error.log*
 !.dev.vars.example
 !.env.example
 vendor-examples/
+tsconfig.tsbuildinfo
