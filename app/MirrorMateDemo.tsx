@@ -888,7 +888,6 @@ export default function MirrorMateDemo() {
                 key={key}
                 className={`template-card ${templateKey === key ? "selected" : ""}`}
                 onClick={() => {
-                  setSharedTutorial(null);
                   setTemplateKey(key);
                   setPromptDirty(false);
                 }}

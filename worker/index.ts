@@ -60,7 +60,9 @@ async function generateMakeupPreview(request: Request, env: Env, pageUrl: URL): 
       model: MAKEUP_TRANSFER_MODEL,
       image: [body.faceImage, body.referenceImage],
       prompt: "图1是使用者正脸，图2是参考妆容。严格保留图1的身份、脸型、五官比例、肤色、皮肤纹理、发型、表情、姿态、背景和原始光线。只迁移图2中清晰可见的妆容：眉型与眉色、眼影渐变、眼线、睫毛效果、鼻影、腮红的落点与边缘、面部修容、唇色与质感、高光。真实摄影质感、自然柔和融合，保留毛孔和真实皮肤光影。禁止改变脸型、眼睛大小、鼻形、嘴唇形状、发型、年龄、背景；禁止加入文字、水印、饰品、新人物或夸张美颜。输出一张自然、清晰的正脸静态试妆预览。",
-      size: "1024*1024",
+      // This is the OpenAI-compatible Images endpoint, whose size separator is
+      // the letter "x" (the DashScope protocol uses "*").
+      size: "1024x1024",
       n: 1,
     }),
   });
