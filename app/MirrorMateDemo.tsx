@@ -503,8 +503,11 @@ export default function MirrorMateDemo() {
       const track = voiceStream.getAudioTracks()[0];
       if (track) track.enabled = false;
       const sender = track ? pc.addTrack(track, voiceStream) : null;
-      const channel = pc.createDataChannel("oai-events");
-      realtimeChannelRef.current = channel;
+      // Creating a local channel makes it part of the SDP negotiation. Bailian
+      // then opens its own `txt` channel for realtime events; messages must be
+      // read from and sent back on that server-created channel.
+      const offerChannel = pc.createDataChannel("oai-events");
+      realtimeChannelRef.current = offerChannel;
       pc.ontrack = (event) => {
         const audio = new Audio();
         audio.autoplay = true;
@@ -517,41 +520,52 @@ export default function MirrorMateDemo() {
           if (realtimePcRef.current === pc) stopVoiceCoach();
         }
       };
-      channel.onmessage = (event) => {
-        let data: {
-          type?: string;
-          transcript?: string;
-          name?: string;
-          arguments?: string;
-          call_id?: string;
-          error?: { message?: string };
-        };
-        try { data = JSON.parse(event.data); } catch { return; }
-        if (data.type === "session.created") {
-          if (track) track.enabled = true;
-          sender?.replaceTrack(track ?? null).catch(() => {});
-          sendRealtimeSessionUpdate(channel, coachSnapshotRef.current ?? coachSnapshot);
-        } else if (data.type === "session.updated") {
-          if (!realtimeActiveRef.current) {
-            realtimeActiveRef.current = true;
-            setVoiceStatus("listening");
-            setVoiceTranscript("已接通千问实时陪练。你可以像和朋友聊天一样说话，也可以随时打断。");
+      const listenForRealtimeEvents = (eventChannel: RTCDataChannel) => {
+        eventChannel.onmessage = (event) => {
+          let data: {
+            type?: string;
+            transcript?: string;
+            name?: string;
+            arguments?: string;
+            call_id?: string;
+            error?: { message?: string };
+          };
+          try { data = JSON.parse(event.data); } catch { return; }
+          if (data.type === "session.created") {
+            if (track) track.enabled = true;
+            sender?.replaceTrack(track ?? null).catch(() => {});
+            sendRealtimeSessionUpdate(eventChannel, coachSnapshotRef.current ?? coachSnapshot);
+          } else if (data.type === "session.updated") {
+            if (!realtimeActiveRef.current) {
+              realtimeActiveRef.current = true;
+              setVoiceStatus("listening");
+              setVoiceTranscript("已接通千问实时陪练。你可以像和朋友聊天一样说话，也可以随时打断。");
+            }
+          } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
+            setVoiceTranscript(`你说：“${data.transcript}”`);
+          } else if (
+            data.type === "response.function_call_arguments.done" &&
+            data.name &&
+            data.call_id
+          ) {
+            setVoiceTranscript("我看一下这一小步。");
+            answerRealtimeTool(eventChannel, data.call_id, data.name, data.arguments);
+          } else if (data.type === "response.audio_transcript.done" && data.transcript) {
+            setVoiceTranscript(`妆伴：${data.transcript}`);
+          } else if (data.type === "error") {
+            setVoiceStatus("error");
+            setVoiceTranscript(`千问实时通话发生错误：${data.error?.message || "请点击重试。"}`);
           }
-        } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
-          setVoiceTranscript(`你说：“${data.transcript}”`);
-        } else if (
-          data.type === "response.function_call_arguments.done" &&
-          data.name &&
-          data.call_id
-        ) {
-          setVoiceTranscript(`妆伴正在读取：${data.name}`);
-          answerRealtimeTool(channel, data.call_id, data.name, data.arguments);
-        } else if (data.type === "response.audio_transcript.done" && data.transcript) {
-          setVoiceTranscript(`妆伴：${data.transcript}`);
-        } else if (data.type === "error") {
-          setVoiceStatus("error");
-          setVoiceTranscript(`千问实时通话发生错误：${data.error?.message || "请点击重试。"}`);
-        }
+        };
+      };
+      // Current documents show event messages on a server-created `txt`
+      // channel. Listen on the offer channel too so a future compatible
+      // endpoint that reuses it remains supported.
+      listenForRealtimeEvents(offerChannel);
+      pc.ondatachannel = (event) => {
+        if (event.channel.label !== "txt") return;
+        realtimeChannelRef.current = event.channel;
+        listenForRealtimeEvents(event.channel);
       };
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -574,7 +588,7 @@ export default function MirrorMateDemo() {
         const body = await response.json().catch(() => ({})) as { error?: string };
         throw new Error(body.error || "无法建立实时连接");
       }
-      const answerSdp = (await response.text()).trim().replace(/\r?\n/g, "\r\n");
+      const answerSdp = await response.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (error) {
       const message = error instanceof Error ? error.message : "实时语音暂时不可用";
