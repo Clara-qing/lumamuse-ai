@@ -285,17 +285,6 @@ export default function MirrorMateDemo() {
     }
   }, [coachSnapshot]);
   useEffect(() => {
-    if (stage !== "coach" || !camera) {
-      setCoachTrackingEnabled(false);
-      return;
-    }
-    // Let the teaching view paint before MediaPipe allocates its WebGL/model
-    // resources. This avoids a camera + two-canvas transition in one frame,
-    // which is particularly fragile in embedded mobile browsers.
-    const timer = window.setTimeout(() => setCoachTrackingEnabled(true), 350);
-    return () => window.clearTimeout(timer);
-  }, [camera, stage]);
-  useEffect(() => {
     if (videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
       videoRef.current.play().catch(() => {});
@@ -941,7 +930,7 @@ export default function MirrorMateDemo() {
         <section className="coach-layout">
           <FaceMeshTracker
             videoRef={guideVideoRef}
-            enabled={coachTrackingEnabled}
+            enabled={camera && coachTrackingEnabled}
             landmarksRef={coachLandmarksRef}
             onStatus={onMeshStatus}
             onQuality={onTrackingQuality}
@@ -1009,8 +998,8 @@ export default function MirrorMateDemo() {
               <p className="coach-view-label">
                 操作镜头 · {focusMode === "detail" ? "当前局部已放大" : "按箭头上妆"}
               </p>
-            <LiveMirror
-              camera={camera}
+              <LiveMirror
+                camera={camera && coachTrackingEnabled}
               videoRef={guideVideoRef}
               stream={streamRef.current}
               meshStatus={meshStatus}
@@ -1062,6 +1051,19 @@ export default function MirrorMateDemo() {
               <b>镜面箭头</b>
               {directionCopy(current.zone)}
             </p>
+            <div className="tracking-activation">
+              <b>稳定模式已开启</b>
+              <span>
+                已先进入教学内容，避免切页时加载摄像头特效导致中断。需要实时落点时再手动开启。
+              </span>
+              <button
+                className="secondary wide"
+                onClick={() => setCoachTrackingEnabled((value) => !value)}
+                disabled={!camera}
+              >
+                {coachTrackingEnabled ? "关闭实时镜面辅助" : "开启实时镜面辅助"}
+              </button>
+            </div>
             <div className={`voice-call ${voiceStatus}`} aria-label="语音陪练">
               <div className="voice-avatar" aria-hidden="true">
                 <i />
@@ -1219,11 +1221,14 @@ function LiveMirror({
 }) {
   const fallback = !camera || meshStatus === "fallback";
   useEffect(() => {
-    if (stream && videoRef.current) {
+    if (camera && stream && videoRef.current) {
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch(() => {});
+    } else if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
     }
-  }, [stream, videoRef]);
+  }, [camera, stream, videoRef]);
   return (
     <div
       className={`live-mirror ${camera && !fallback ? "camera-on" : ""} ${focusMode === "detail" ? `detail-focus focus-${focusZone ?? "base"}` : ""}`}

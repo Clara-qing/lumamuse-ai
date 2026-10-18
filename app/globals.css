@@ -1467,6 +1467,11 @@ button {
   line-height: 1.45;
 }
 .direction-hint b { color: var(--rose); font-size: 11px; letter-spacing: .06em; }
+.tracking-activation { display: grid; gap: 7px; margin-top: 14px; padding: 13px; border-radius: 14px; background: #f6efeb; color: #765863; }
+.tracking-activation b { color: #392f32; font-size: 12px; }
+.tracking-activation span { font-size: 11px; line-height: 1.45; }
+.tracking-activation .wide { width: 100%; padding-block: 10px; font-size: 12px; }
+.tracking-activation button:disabled { opacity: .5; cursor: not-allowed; }
 .voice-call {
   display: grid;
   grid-template-columns: 38px 1fr auto;
