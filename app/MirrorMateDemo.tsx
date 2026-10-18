@@ -375,13 +375,6 @@ export default function MirrorMateDemo() {
     setStage("tryon");
     setEvents((v) => [...v, "已确认妆效方向：可先查看示例，再主动开启镜子"]);
   }
-  function acceptLook() {
-    setStep(0);
-    setComparisonEnabled(false);
-    setCoachTrackingEnabled(false);
-    setStage("coach");
-    setEvents((v) => [...v, `已确认妆效：${t.name}，浓度 ${intensity}%`, "进入单镜教学；双镜对照可按需开启"]);
-  }
   function stopVoiceCoach() {
     realtimeActiveRef.current = false;
     realtimeChannelRef.current?.close();
@@ -895,17 +888,18 @@ export default function MirrorMateDemo() {
             >
               换一个风格
             </button>
-            <button
-              className="primary wide accept-look"
-              onClick={acceptLook}
-              disabled={
-                camera &&
-                meshStatus !== "fallback" &&
-                trackingQuality !== "ready"
-              }
-            >
-              用这个教学方向开始跟练
-            </button>
+            {camera && meshStatus !== "fallback" && trackingQuality !== "ready" ? (
+              <button className="primary wide accept-look" disabled>
+                请先调整到合适距离
+              </button>
+            ) : (
+              <a
+                className="primary wide accept-look lesson-link"
+                href={`/lesson?look=${templateKey}&intensity=${intensity}`}
+              >
+                用这个教学方向开始跟练
+              </a>
+            )}
             <p className="prototype-note">实时定位来自 MediaPipe 478 点面部网格；屏幕上的颜色仅是落点辅助，不代表真实妆容迁移。</p>
           </div>
           <LiveMirror
