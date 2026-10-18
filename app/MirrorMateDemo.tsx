@@ -230,6 +230,8 @@ export default function MirrorMateDemo() {
     [trackingQuality, setTrackingQuality] =
       useState<TrackingQuality>("waiting"),
     [showMesh, setShowMesh] = useState(false),
+    [comparisonEnabled, setComparisonEnabled] = useState(false),
+    [coachTrackingEnabled, setCoachTrackingEnabled] = useState(false),
     [rescue, setRescue] = useState(false),
     [focusMode, setFocusMode] = useState<FocusMode>("full"),
     [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle"),
@@ -282,6 +284,17 @@ export default function MirrorMateDemo() {
       sendRealtimeSessionUpdate(channel, coachSnapshot, false);
     }
   }, [coachSnapshot]);
+  useEffect(() => {
+    if (stage !== "coach" || !camera) {
+      setCoachTrackingEnabled(false);
+      return;
+    }
+    // Let the teaching view paint before MediaPipe allocates its WebGL/model
+    // resources. This avoids a camera + two-canvas transition in one frame,
+    // which is particularly fragile in embedded mobile browsers.
+    const timer = window.setTimeout(() => setCoachTrackingEnabled(true), 350);
+    return () => window.clearTimeout(timer);
+  }, [camera, stage]);
   useEffect(() => {
     if (videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
@@ -365,10 +378,20 @@ export default function MirrorMateDemo() {
       setCameraError("摄像头未授权，示例脸仍可演示妆效与教学流程。");
     }
   }
+  function enterTryOn() {
+    if (promptDirty) interpretStyle();
+    setCameraError("");
+    setMeshStatus("idle");
+    setTrackingQuality("waiting");
+    setStage("tryon");
+    setEvents((v) => [...v, "已确认妆效方向：可先查看示例，再主动开启镜子"]);
+  }
   function acceptLook() {
     setStep(0);
+    setComparisonEnabled(false);
+    setCoachTrackingEnabled(false);
     setStage("coach");
-    setEvents((v) => [...v, `已确认妆效：${t.name}，浓度 ${intensity}%`]);
+    setEvents((v) => [...v, `已确认妆效：${t.name}，浓度 ${intensity}%`, "进入单镜教学；双镜对照可按需开启"]);
   }
   function stopVoiceCoach() {
     realtimeActiveRef.current = false;
@@ -818,7 +841,7 @@ export default function MirrorMateDemo() {
           referenceFile={referenceFile}
           referenceUrl={reference}
           onBack={() => setStage("design")}
-          onUseAsGoal={() => startTryOn()}
+          onUseAsGoal={enterTryOn}
         />
       )}
       {stage === "tryon" && (
@@ -872,6 +895,11 @@ export default function MirrorMateDemo() {
                 />
               ))}
             </div>
+            {!camera && (
+              <button className="secondary wide" onClick={startTryOn}>
+                开启摄像头，开始实时定位
+              </button>
+            )}
             <button
               className="secondary wide"
               onClick={() => setStage("design")}
@@ -913,7 +941,7 @@ export default function MirrorMateDemo() {
         <section className="coach-layout">
           <FaceMeshTracker
             videoRef={guideVideoRef}
-            enabled={camera}
+            enabled={coachTrackingEnabled}
             landmarksRef={coachLandmarksRef}
             onStatus={onMeshStatus}
             onQuality={onTrackingQuality}
@@ -955,7 +983,7 @@ export default function MirrorMateDemo() {
               {statusCopy(meshStatus)}
             </div>
           </aside>
-          <div className="mirror-stage dual-mirror-stage">
+          <div className={`mirror-stage ${comparisonEnabled ? "dual-mirror-stage" : "single-mirror-stage"}`}>
             <div className="mirror-view-controls" aria-label="镜面视图">
               <span>操作镜头</span>
               <button
@@ -969,6 +997,12 @@ export default function MirrorMateDemo() {
                 onClick={() => setFocusMode("detail")}
               >
                 放大当前局部
+              </button>
+              <button
+                className={comparisonEnabled ? "active" : ""}
+                onClick={() => setComparisonEnabled((value) => !value)}
+              >
+                {comparisonEnabled ? "收起双镜对照" : "开启双镜对照"}
               </button>
             </div>
             <div className="coach-mirror-cell">
@@ -994,23 +1028,25 @@ export default function MirrorMateDemo() {
               focusZone={current.zone}
             />
             </div>
-            <div className="coach-mirror-cell target-look-cell">
-              <p className="coach-view-label">目标妆效 · 实时对照</p>
-              <LiveMirror
-                camera={camera}
-                videoRef={previewVideoRef}
-                stream={streamRef.current}
-                meshStatus={meshStatus}
-                onMeshStatus={onMeshStatus}
-                palette={palette}
-                intensity={intensity}
-                look={templateKey}
-                mode="tryon"
-                showMesh={false}
-                onQuality={onTrackingQuality}
-                landmarksRef={coachLandmarksRef}
-              />
-            </div>
+            {comparisonEnabled && (
+              <div className="coach-mirror-cell target-look-cell">
+                <p className="coach-view-label">目标妆效 · 实时对照</p>
+                <LiveMirror
+                  camera={camera}
+                  videoRef={previewVideoRef}
+                  stream={streamRef.current}
+                  meshStatus={meshStatus}
+                  onMeshStatus={onMeshStatus}
+                  palette={palette}
+                  intensity={intensity}
+                  look={templateKey}
+                  mode="tryon"
+                  showMesh={false}
+                  onQuality={onTrackingQuality}
+                  landmarksRef={coachLandmarksRef}
+                />
+              </div>
+            )}
           </div>
           <aside className="instruction-panel">
             <p className="step-number">
