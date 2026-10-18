@@ -104,8 +104,18 @@ async function exchangeRealtimeOffer(request: Request, env: Env, pageUrl: URL): 
   });
   const answer = await upstream.text();
   if (!upstream.ok) {
-    console.error("Bailian realtime SDP exchange failed", upstream.status, answer.slice(0, 300));
-    return Response.json({ error: "Realtime connection could not be established." }, { status: 502 });
+    // Keep the provider response in server logs for diagnosis, but only return
+    // the status category to the browser: upstream messages can contain
+    // account-specific details and must not leak to a public client.
+    console.error(JSON.stringify({
+      event: "bailian_realtime_sdp_exchange_failed",
+      upstreamStatus: upstream.status,
+      upstreamBody: answer.slice(0, 300),
+    }));
+    return Response.json({
+      error: `百炼实时会话被拒绝（HTTP ${upstream.status}）。请检查此 Worker 的 API Key、Workspace ID 与模型开通状态。`,
+      upstreamStatus: upstream.status,
+    }, { status: 502 });
   }
   return new Response(answer, {
     headers: {
