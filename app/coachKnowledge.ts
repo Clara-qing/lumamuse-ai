@@ -109,45 +109,53 @@ export const knowledgeByZone: Record<string, StepKnowledge> = {
 export const realtimeCoachTools = [
   {
     type: "function",
-    name: "get_coaching_context",
-    description: "读取当前妆容步骤、面部追踪状态、工具、用量、手法、停止条件和教学证据。回答具体教学问题前优先调用。",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    type: "function",
-    name: "move_step",
-    description: "根据用户明确请求切换上一步或下一步。",
-    parameters: {
-      type: "object",
-      properties: { direction: { type: "string", enum: ["previous", "next"] } },
-      required: ["direction"],
-      additionalProperties: false,
+    function: {
+      name: "get_coaching_context",
+      description: "读取当前妆容步骤、面部追踪状态、工具、用量、手法、停止条件和教学证据。回答具体教学问题前调用。",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
   {
     type: "function",
-    name: "set_mirror_view",
-    description: "按用户要求切换整脸视图或放大当前教学局部。",
-    parameters: {
-      type: "object",
-      properties: { mode: { type: "string", enum: ["full", "detail"] } },
-      required: ["mode"],
-      additionalProperties: false,
+    function: {
+      name: "move_step",
+      description: "根据用户明确请求切换上一步或下一步。",
+      parameters: {
+        type: "object",
+        properties: { direction: { type: "string", enum: ["previous", "next"] } },
+        required: ["direction"],
+        additionalProperties: false,
+      },
     },
   },
   {
     type: "function",
-    name: "open_rescue",
-    description: "用户说画错、太重、越界、不均匀或不知道怎么补救时，打开当前步骤的局部补救卡。",
-    parameters: {
-      type: "object",
-      properties: { problem: { type: "string" } },
-      required: ["problem"],
-      additionalProperties: false,
+    function: {
+      name: "set_mirror_view",
+      description: "按用户要求切换整脸视图或放大当前教学局部。",
+      parameters: {
+        type: "object",
+        properties: { mode: { type: "string", enum: ["full", "detail"] } },
+        required: ["mode"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_rescue",
+      description: "用户说画错、太重、越界、不均匀或不知道怎么补救时，打开当前步骤的局部补救卡。",
+      parameters: {
+        type: "object",
+        properties: { problem: { type: "string" } },
+        required: ["problem"],
+        additionalProperties: false,
+      },
     },
   },
 ] as const;
 
 export function coachInstructions(snapshot: CoachSnapshot) {
-  return `你是 LumaMuse 光感妆伴，一位中文实时化妆教练。当前页面状态会持续更新，你必须以它为准：\n${JSON.stringify(snapshot)}\n\n规则：\n1. 用户问当前步骤、工具、用量、手法、位置、原因、停止条件或补救时，先调用 get_coaching_context，再给 2—4 句可执行回答。\n2. 用户明确要求切换步骤、放大局部、退回整脸或补救时，调用对应工具；不要只口头答应。\n3. 当前视觉只可靠提供面部关键点、距离与居中状态。除非工具结果明确支持，不要声称看见“颜色太深、已经晕匀、左右一致”等妆面结论。\n4. 教学证据若标注为预置模板，要如实说明；不要假装已经从参考图片理解具体手法或商品。\n5. 不评价颜值、不制造焦虑、不做医疗诊断。用户打断时立即简短回应。`;
+  return `你是 LumaMuse 光感妆伴，一位温暖、专业、说话自然的中文实时化妆教练。你正在陪用户边照镜子边练妆；像一位耐心的朋友一样对话，不要像说明书或客服。\n\n当前页面状态（用于教学，不要把整段状态复述给用户）：\n${JSON.stringify(snapshot)}\n\n对话方式：\n1. 先自然回应用户的原话。寒暄、鼓励、一般美妆问题直接聊天，不调用工具；回答通常 1—3 句，口语、简短、可打断。\n2. 只有需要读取当前步骤/工具/用量/手法/补救时才调用 get_coaching_context。拿到信息后，用“先做什么—做到哪里停—出错怎么办”的顺序给一个小动作；一次只教一个重点。\n3. 用户明确要求“下一步、上一步、放大、整脸、救一下/画错了”时，调用相应工具后再自然确认结果。\n4. 当前视觉只可靠提供面部关键点、距离与居中状态；不能凭空判断颜色深浅、是否晕匀或左右是否一致。可以邀请用户转头、退半步或描述感觉。\n5. 不评价颜值，不制造焦虑，不做医疗诊断；不要编造从参考图识别到的产品或具体手法。用户沉默或犹豫时，可温和地问一个简短问题，例如“你现在卡在取粉还是落点？”`;
 }

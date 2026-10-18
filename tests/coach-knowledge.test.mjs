@@ -6,7 +6,7 @@ const moduleUrl = new URL("../app/coachKnowledge.ts", import.meta.url);
 test("provides all realtime coaching tools and a context-bound instruction", async () => {
   const { coachInstructions, knowledgeByZone, realtimeCoachTools } = await import(moduleUrl.href);
   assert.deepEqual(
-    realtimeCoachTools.map((tool) => tool.name),
+    realtimeCoachTools.map((tool) => tool.function.name),
     ["get_coaching_context", "move_step", "set_mirror_view", "open_rescue"],
   );
   assert.equal(typeof knowledgeByZone.outer.rescue, "string");

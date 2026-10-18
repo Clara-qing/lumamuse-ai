@@ -293,7 +293,7 @@ export default function MirrorMateDemo() {
     coachSnapshotRef.current = coachSnapshot;
     const channel = realtimeChannelRef.current;
     if (realtimeActiveRef.current && channel?.readyState === "open") {
-      sendRealtimeSessionUpdate(channel, coachSnapshot);
+      sendRealtimeSessionUpdate(channel, coachSnapshot, false);
     }
   }, [coachSnapshot]);
   useEffect(() => {
@@ -509,28 +509,34 @@ export default function MirrorMateDemo() {
   function sendRealtimeSessionUpdate(
     channel: RTCDataChannel,
     snapshot: CoachSnapshot,
+    initialize = true,
   ) {
     if (channel.readyState !== "open") return;
-    channel.send(
-      JSON.stringify({
-        event_id: `lumamuse_session_${Date.now()}`,
-        type: "session.update",
-        session: {
+    const session = initialize
+      ? {
           modalities: ["text", "audio"],
-          voice: "Tina",
-          input_audio_format: "pcm",
-          output_audio_format: "pcm",
+          audio: {
+            input: { format: { type: "pcm", sample_rate: 16000 } },
+            output: { format: { type: "pcm", sample_rate: 24000 }, voice: "Tina" },
+          },
           input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
           turn_detection: {
             type: "semantic_vad",
             prefix_padding_ms: 500,
-            silence_duration_ms: 900,
-            threshold: 0.1,
+            silence_duration_ms: 700,
+            threshold: 0.35,
           },
           instructions: coachInstructions(snapshot),
           tools: realtimeCoachTools,
-          tool_choice: "auto",
-        },
+          temperature: 0.7,
+          max_tokens: 360,
+        }
+      : { instructions: coachInstructions(snapshot) };
+    channel.send(
+      JSON.stringify({
+        event_id: `lumamuse_session_${Date.now()}`,
+        type: "session.update",
+        session,
       }),
     );
   }
@@ -597,13 +603,16 @@ export default function MirrorMateDemo() {
     setVoiceStatus("connecting");
     setVoiceTranscript("正在安全连接 LumaMuse 实时语音…");
     try {
-      const voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const voiceStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
       voiceStreamRef.current = voiceStream;
       const pc = new RTCPeerConnection();
       realtimePcRef.current = pc;
       const track = voiceStream.getAudioTracks()[0];
+      if (track) track.enabled = false;
       const sender = track ? pc.addTrack(track, voiceStream) : null;
-      if (sender) await sender.replaceTrack(null);
       const channel = pc.createDataChannel("oai-events");
       realtimeChannelRef.current = channel;
       pc.ontrack = (event) => {
@@ -629,13 +638,16 @@ export default function MirrorMateDemo() {
         };
         try { data = JSON.parse(event.data); } catch { return; }
         if (data.type === "session.created") {
+          if (track) track.enabled = true;
+          sender?.replaceTrack(track ?? null).catch(() => {});
           sendRealtimeSessionUpdate(channel, coachSnapshotRef.current ?? coachSnapshot);
         } else if (data.type === "session.updated") {
-          realtimeActiveRef.current = true;
-          setVoiceMode("realtime");
-          sender?.replaceTrack(track ?? null).catch(() => {});
-          setVoiceStatus("listening");
-          setVoiceTranscript("已接通千问实时陪练，可以自然说话或随时打断。");
+          if (!realtimeActiveRef.current) {
+            realtimeActiveRef.current = true;
+            setVoiceMode("realtime");
+            setVoiceStatus("listening");
+            setVoiceTranscript("已接通千问实时陪练。你可以像和朋友聊天一样说话，也可以随时打断。");
+          }
         } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
           setVoiceTranscript(`你说：“${data.transcript}”`);
         } else if (
