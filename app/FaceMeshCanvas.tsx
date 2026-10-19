@@ -19,6 +19,8 @@ export type MeshStatus =
   | "no-face"
   | "fallback";
 
+export type GazeStatus = "aligned" | "down" | "unknown";
+
 type Props = {
   videoRef: RefObject<HTMLVideoElement | null>;
   enabled: boolean;
@@ -32,62 +34,104 @@ type Props = {
   landmarksRef?: RefObject<FaceLandmarks | null>;
   onStatus: (status: MeshStatus) => void;
   onQuality?: (quality: TrackingQuality) => void;
+  onGaze?: (status: GazeStatus) => void;
 };
 
 const MODEL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm";
-const LEFT_EYE = [
-  33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7,
-];
-const RIGHT_EYE = [
-  362, 398, 384, 385, 386, 387, 388, 466, 263, 249, 390, 373, 374, 380, 381,
-  382,
-];
-const LEFT_CHEEK = [234, 93, 132, 58, 172, 136, 150, 149];
-const RIGHT_CHEEK = [454, 323, 361, 288, 397, 365, 379, 378];
+// Full eye loops include the iris and must never be used as an eyeshadow mask.
+// These two upper/lower lid arcs define skin-only makeup bands instead.
+const LEFT_UPPER_LID = [33, 246, 161, 160, 159, 158, 157, 173, 133];
+const RIGHT_UPPER_LID = [362, 398, 384, 385, 386, 387, 388, 466, 263];
+const LEFT_LOWER_LID = [33, 7, 163, 144, 145, 153, 154, 155, 133];
+const RIGHT_LOWER_LID = [362, 382, 381, 380, 374, 373, 390, 249, 263];
+const LEFT_BROW = [70, 63, 105, 66, 107];
+const RIGHT_BROW = [300, 293, 334, 296, 336];
+// Compact cheek planes avoid covering the jaw or side of the face with a
+// single coloured polygon. Their soft edge is what gives the filter a makeup
+// rather than sticker-like appearance.
+const LEFT_CHEEK = [50, 101, 205, 187, 123, 116];
+const RIGHT_CHEEK = [280, 330, 425, 411, 352, 345];
+const LEFT_CONTOUR = [234, 93, 132, 123, 205, 50, 101];
+const RIGHT_CONTOUR = [454, 323, 361, 352, 425, 330, 280];
 const LIPS = [
   61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308, 324, 318, 402, 317,
   14, 87, 178, 88, 95,
 ];
 const LEFT_JAW = [234, 127, 162, 21, 54, 103, 67, 109];
 const RIGHT_JAW = [454, 356, 389, 251, 284, 332, 297, 338];
+const LEFT_IRIS = [468, 469, 470, 471, 472];
+const RIGHT_IRIS = [473, 474, 475, 476, 477];
 
 function rgba(hex: string, alpha: number) {
   const n = Number.parseInt(hex.replace("#", ""), 16);
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
-function polygon(
+type CanvasPoint = { x: number; y: number };
+
+function toCanvasPoint(point: NormalizedLandmark, canvas: HTMLCanvasElement): CanvasPoint {
+  return { x: point.x * canvas.width, y: point.y * canvas.height };
+}
+
+function interpolatePoint(from: CanvasPoint, to: CanvasPoint, amount: number): CanvasPoint {
+  return {
+    x: from.x + (to.x - from.x) * amount,
+    y: from.y + (to.y - from.y) * amount,
+  };
+}
+
+function makeUpperLidBand(
   ctx: CanvasRenderingContext2D,
   points: NormalizedLandmark[],
-  ids: number[],
-  fill: string,
-  blur = 0,
-  stroke?: string,
-  blend: GlobalCompositeOperation = "source-over",
-) {
-  ctx.save();
-  ctx.filter = blur ? `blur(${blur}px)` : "none";
-  ctx.globalCompositeOperation = blend;
-  ctx.beginPath();
-  ids.forEach((id, index) => {
-    const p = points[id];
-    const x = p.x * ctx.canvas.width;
-    const y = p.y * ctx.canvas.height;
-    if (index) ctx.lineTo(x, y);
-    else ctx.moveTo(x, y);
+  eyeIds: number[],
+  browIds: number[],
+  lift = 0.42,
+  start = 0,
+  end = eyeIds.length - 1,
+): CanvasPoint[] {
+  const lash = eyeIds.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  const crease = lash.map((point, index) => {
+    const browIndex = Math.round((index / (lash.length - 1)) * (browIds.length - 1));
+    return interpolatePoint(point, toCanvasPoint(points[browIds[browIndex]], ctx.canvas), lift);
   });
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  if (stroke) {
-    ctx.filter = "none";
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = stroke;
-    ctx.stroke();
-  }
-  ctx.restore();
+  return [
+    ...lash.slice(start, end + 1),
+    ...crease.slice(start, end + 1).reverse(),
+  ];
+}
+
+function makeLowerLidBand(
+  ctx: CanvasRenderingContext2D,
+  points: NormalizedLandmark[],
+  lowerIds: number[],
+  upperIds: number[],
+  depth = 0.7,
+): CanvasPoint[] {
+  const upper = upperIds.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  const lash = lowerIds.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  const upperY = upper.reduce((total, point) => total + point.y, 0) / upper.length;
+  const lowerY = lash.reduce((total, point) => total + point.y, 0) / lash.length;
+  const eyeHeight = Math.max(5, Math.abs(lowerY - upperY));
+  return [
+    ...lash,
+    ...lash.map((point) => ({ x: point.x, y: point.y + eyeHeight * depth })).reverse(),
+  ];
+}
+
+function gazeStatus(points: NormalizedLandmark[]): GazeStatus {
+  if (points.length < 478) return "unknown";
+  const eyeRatio = (eyeIds: number[], irisIds: number[]) => {
+    const ys = eyeIds.map((id) => points[id]?.y).filter((value): value is number => value !== undefined);
+    const irisY = irisIds.reduce((total, id) => total + (points[id]?.y ?? 0), 0) / irisIds.length;
+    const top = Math.min(...ys), bottom = Math.max(...ys);
+    return bottom - top < 0.006 ? null : (irisY - top) / (bottom - top);
+  };
+  const left = eyeRatio([...LEFT_UPPER_LID, ...LEFT_LOWER_LID], LEFT_IRIS);
+  const right = eyeRatio([...RIGHT_UPPER_LID, ...RIGHT_LOWER_LID], RIGHT_IRIS);
+  if (left === null || right === null) return "unknown";
+  return left > 0.64 && right > 0.64 ? "down" : "aligned";
 }
 
 function softlyFillPolygon(
@@ -130,6 +174,63 @@ function softlyFillPolygon(
   ctx.clip();
   ctx.fillStyle = gradient;
   ctx.fillRect(center.x - radius * 1.4, center.y - radius * 1.4, radius * 2.8, radius * 2.8);
+  ctx.restore();
+}
+
+function softlyFillCoordinates(
+  ctx: CanvasRenderingContext2D,
+  coordinates: CanvasPoint[],
+  color: string,
+  alpha: number,
+  blur: number,
+  blend: GlobalCompositeOperation,
+) {
+  const center = coordinates.reduce(
+    (total, point) => ({ x: total.x + point.x, y: total.y + point.y }),
+    { x: 0, y: 0 },
+  );
+  center.x /= coordinates.length;
+  center.y /= coordinates.length;
+  const radius = Math.max(
+    14,
+    ...coordinates.map((point) => Math.hypot(point.x - center.x, point.y - center.y)),
+  );
+  const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius * 1.18);
+  gradient.addColorStop(0, rgba(color, alpha));
+  gradient.addColorStop(0.62, rgba(color, alpha * 0.58));
+  gradient.addColorStop(1, rgba(color, 0));
+  ctx.save();
+  ctx.filter = `blur(${blur}px)`;
+  ctx.globalCompositeOperation = blend;
+  ctx.beginPath();
+  coordinates.forEach((point, index) => {
+    if (index) ctx.lineTo(point.x, point.y);
+    else ctx.moveTo(point.x, point.y);
+  });
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = gradient;
+  ctx.fillRect(center.x - radius * 1.4, center.y - radius * 1.4, radius * 2.8, radius * 2.8);
+  ctx.restore();
+}
+
+function outlineCoordinates(
+  ctx: CanvasRenderingContext2D,
+  coordinates: CanvasPoint[],
+  color: string,
+) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.78;
+  ctx.lineWidth = 1.35;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  coordinates.forEach((point, index) => {
+    if (index) ctx.lineTo(point.x, point.y);
+    else ctx.moveTo(point.x, point.y);
+  });
+  ctx.closePath();
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -194,37 +295,37 @@ function renderLook(
   // webcam, even at the default 55% intensity.
   const a = Math.max(0.13, Math.min(0.72, (intensity / 100) * 0.78));
   const guide = "rgba(255,255,255,.9)";
+  const leftLid = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW);
+  const rightLid = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW);
+  const leftOuterLid = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW, 0.42, 0, 4);
+  const rightOuterLid = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW, 0.42, 0, 4);
+  const leftLiner = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW, 0.16);
+  const rightLiner = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW, 0.16);
+  const leftLower = makeLowerLidBand(ctx, points, LEFT_LOWER_LID, LEFT_UPPER_LID);
+  const rightLower = makeLowerLidBand(ctx, points, RIGHT_LOWER_LID, RIGHT_UPPER_LID);
   if (mode === "teach") {
     if (look === "contour") {
       const useJaw = teachingZone === "jaw" || teachingZone === "scan";
       const left = useJaw ? LEFT_JAW : LEFT_CHEEK;
       const right = useJaw ? RIGHT_JAW : RIGHT_CHEEK;
-      polygon(ctx, points, left, rgba(palette[1], a * 0.48), 8, guide);
-      polygon(ctx, points, right, rgba(palette[1], a * 0.48), 8, guide);
+      softlyFillPolygon(ctx, points, left, palette[1], a * 0.36, 12, "multiply");
+      softlyFillPolygon(ctx, points, right, palette[1], a * 0.36, 12, "multiply");
+      outlineCoordinates(ctx, left.map((id) => toCanvasPoint(points[id], ctx.canvas)), guide);
+      outlineCoordinates(ctx, right.map((id) => toCanvasPoint(points[id], ctx.canvas)), guide);
     } else {
-      const eyeZones: Record<string, [number[], number[]]> = {
-        base: [LEFT_EYE, RIGHT_EYE],
-        soften: [LEFT_EYE, RIGHT_EYE],
-        outer: [
-          [33, 246, 161, 160, 159, 133, 155, 154],
-          [362, 398, 384, 385, 386, 263, 249, 390],
-        ],
-        liner: [
-          [33, 7, 163, 144, 145, 153, 154, 155, 133],
-          [362, 382, 381, 380, 374, 373, 390, 249, 263],
-        ],
-        lower: [
-          [33, 7, 163, 144, 145, 153, 154, 155, 133],
-          [362, 382, 381, 380, 374, 373, 390, 249, 263],
-        ],
-        highlight: [
-          [159, 158, 157, 173, 133, 155, 154, 153],
-          [386, 387, 388, 466, 263, 249, 390, 373],
-        ],
-      };
-      const [left, right] = eyeZones[teachingZone || "base"] || eyeZones.base;
-      polygon(ctx, points, left, rgba(palette[0], a * 0.72), 3, guide);
-      polygon(ctx, points, right, rgba(palette[0], a * 0.72), 3, guide);
+      const zone = teachingZone || "base";
+      const [left, right] = zone === "outer"
+        ? [leftOuterLid, rightOuterLid]
+        : zone === "liner"
+          ? [leftLiner, rightLiner]
+          : zone === "lower"
+            ? [leftLower, rightLower]
+            : [leftLid, rightLid];
+      const color = zone === "highlight" ? palette[2] : palette[0];
+      softlyFillCoordinates(ctx, left, color, a * 0.62, zone === "liner" ? 2 : 5, zone === "liner" ? "multiply" : "soft-light");
+      softlyFillCoordinates(ctx, right, color, a * 0.62, zone === "liner" ? 2 : 5, zone === "liner" ? "multiply" : "soft-light");
+      outlineCoordinates(ctx, left, guide);
+      outlineCoordinates(ctx, right, guide);
     }
     const nose = points[1];
     ctx.fillStyle = "rgba(255,255,255,.92)";
@@ -247,33 +348,19 @@ function renderLook(
     // by short-video makeup effects: diffuse base, darker outer corner, and
     // a tiny centre highlight. There are deliberately no hard outlines.
     const baseBlend = look === "smoky" ? "source-over" : "soft-light";
-    softlyFillPolygon(ctx, points, LEFT_EYE, palette[0], a * 0.82, 6, baseBlend);
-    softlyFillPolygon(ctx, points, RIGHT_EYE, palette[0], a * 0.82, 6, baseBlend);
+    softlyFillCoordinates(ctx, leftLid, palette[0], a * 0.7, 5, baseBlend);
+    softlyFillCoordinates(ctx, rightLid, palette[0], a * 0.7, 5, baseBlend);
     const outerA = look === "smoky" ? a * 1.05 : a * 0.72;
-    softlyFillPolygon(
-      ctx,
-      points,
-      [33, 246, 161, 160, 159, 133, 155, 154, 153],
-      palette[1],
-      outerA,
-      8,
-      "multiply",
-    );
-    softlyFillPolygon(
-      ctx,
-      points,
-      [362, 398, 384, 385, 386, 263, 249, 390, 373],
-      palette[1],
-      outerA,
-      8,
-      "multiply",
-    );
-    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[0], a * 0.42, 15, "soft-light");
-    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[0], a * 0.42, 15, "soft-light");
-    polygon(ctx, points, LIPS, rgba(palette[1], a * 0.6), 4, undefined, "source-over");
+    softlyFillCoordinates(ctx, leftOuterLid, palette[1], outerA, 6, "multiply");
+    softlyFillCoordinates(ctx, rightOuterLid, palette[1], outerA, 6, "multiply");
+    softlyFillCoordinates(ctx, leftLower, palette[1], a * 0.14, 3, "multiply");
+    softlyFillCoordinates(ctx, rightLower, palette[1], a * 0.14, 3, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[0], a * 0.34, 18, "soft-light");
+    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[0], a * 0.34, 18, "soft-light");
+    softlyFillPolygon(ctx, points, LIPS, palette[1], a * 0.46, 5, "source-over");
   } else {
-    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[1], a * 0.76, 15, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[1], a * 0.76, 15, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_CONTOUR, palette[1], a * 0.58, 17, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_CONTOUR, palette[1], a * 0.58, 17, "multiply");
     softlyFillPolygon(ctx, points, LEFT_JAW, palette[1], a * 0.34, 18, "multiply");
     softlyFillPolygon(ctx, points, RIGHT_JAW, palette[1], a * 0.34, 18, "multiply");
   }
@@ -292,6 +379,7 @@ export default function FaceMeshCanvas({
   landmarksRef,
   onStatus,
   onQuality,
+  onGaze,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const latest = useRef({
@@ -316,6 +404,7 @@ export default function FaceMeshCanvas({
     let previousPoints: FaceLandmarks | null = null;
     let lastStatus: MeshStatus = "idle";
     let lastQuality: TrackingQuality = "waiting";
+    let lastGaze: GazeStatus = "unknown";
     const report = (status: MeshStatus) => {
       if (status !== lastStatus) {
         lastStatus = status;
@@ -371,6 +460,11 @@ export default function FaceMeshCanvas({
               lastQuality = quality;
               onQuality?.(quality);
             }
+            const gaze = gazeStatus(points);
+            if (gaze !== lastGaze) {
+              lastGaze = gaze;
+              onGaze?.(gaze);
+            }
             if (s.showMesh) drawMesh(ctx, points);
             renderLook(ctx, points, s.palette, s.intensity, s.look, s.mode, s.teachingZone);
             if(s.brushDirection) drawBrushDirection(ctx,points,s.teachingZone);
@@ -393,13 +487,14 @@ export default function FaceMeshCanvas({
       cancelAnimationFrame(frame);
       landmarker?.close();
     };
-  }, [enabled, landmarksRef, onStatus, onQuality, videoRef]);
+  }, [enabled, landmarksRef, onGaze, onStatus, onQuality, videoRef]);
 
   useEffect(() => {
     if (!enabled || !landmarksRef) return;
     let cancelled = false;
     let frame = 0;
     let lastVideoTime = -1;
+    let lastGaze: GazeStatus = "unknown";
     const loop = () => {
       if (cancelled) return;
       const video = videoRef.current;
@@ -418,6 +513,11 @@ export default function FaceMeshCanvas({
         const points = landmarksRef.current;
         if (points && ctx) {
           const s = latest.current;
+          const gaze = gazeStatus(points);
+          if (gaze !== lastGaze) {
+            lastGaze = gaze;
+            onGaze?.(gaze);
+          }
           if (s.showMesh) drawMesh(ctx, points);
           renderLook(ctx, points, s.palette, s.intensity, s.look, s.mode, s.teachingZone);
           if (s.brushDirection) drawBrushDirection(ctx, points, s.teachingZone);
@@ -430,7 +530,7 @@ export default function FaceMeshCanvas({
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [enabled, landmarksRef, videoRef]);
+  }, [enabled, landmarksRef, onGaze, videoRef]);
 
   return (
     <canvas
@@ -452,12 +552,14 @@ export function FaceMeshTracker({
   landmarksRef,
   onStatus,
   onQuality,
+  onGaze,
 }: {
   videoRef: RefObject<HTMLVideoElement | null>;
   enabled: boolean;
   landmarksRef: RefObject<FaceLandmarks | null>;
   onStatus: (status: MeshStatus) => void;
   onQuality?: (quality: TrackingQuality) => void;
+  onGaze?: (status: GazeStatus) => void;
 }) {
   useEffect(() => {
     if (!enabled) {
@@ -470,6 +572,7 @@ export function FaceMeshTracker({
     let lastVideoTime = -1;
     let lastStatus: MeshStatus = "idle";
     let lastQuality: TrackingQuality = "waiting";
+    let lastGaze: GazeStatus = "unknown";
     let previousPoints: FaceLandmarks | null = null;
     const report = (status: MeshStatus) => {
       if (status !== lastStatus) {
@@ -509,6 +612,11 @@ export function FaceMeshTracker({
             lastQuality = quality;
             onQuality?.(quality);
           }
+          const gaze = gazeStatus(points);
+          if (gaze !== lastGaze) {
+            lastGaze = gaze;
+            onGaze?.(gaze);
+          }
         } else {
           previousPoints = null;
           landmarksRef.current = null;
@@ -524,6 +632,6 @@ export function FaceMeshTracker({
       landmarksRef.current = null;
       landmarker?.close();
     };
-  }, [enabled, landmarksRef, onQuality, onStatus, videoRef]);
+  }, [enabled, landmarksRef, onGaze, onQuality, onStatus, videoRef]);
   return null;
 }

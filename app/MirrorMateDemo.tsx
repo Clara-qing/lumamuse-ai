@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import FaceMeshCanvas, { FaceMeshTracker, MeshStatus } from "./FaceMeshCanvas";
-import type { FaceLandmarks, TrackingQuality } from "./FaceMeshCanvas";
+import type { FaceLandmarks, GazeStatus, TrackingQuality } from "./FaceMeshCanvas";
 import { extractReferenceAnalysis } from "./makeupAnalysis";
 import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
 import ReferencePrecisionLab from "./ReferencePrecisionLab";
@@ -230,6 +230,7 @@ export default function MirrorMateDemo() {
     [meshStatus, setMeshStatus] = useState<MeshStatus>("idle"),
     [trackingQuality, setTrackingQuality] =
       useState<TrackingQuality>("waiting"),
+    [gazeStatus, setGazeStatus] = useState<GazeStatus>("unknown"),
     [showMesh, setShowMesh] = useState(false),
     [rescue, setRescue] = useState(false),
     [focusMode, setFocusMode] = useState<FocusMode>("full"),
@@ -629,6 +630,7 @@ export default function MirrorMateDemo() {
     setCameraError("");
     setMeshStatus("idle");
     setTrackingQuality("waiting");
+    setGazeStatus("unknown");
     setShowMesh(false);
     setFocusMode("full");
     setStage("upload");
@@ -930,6 +932,9 @@ export default function MirrorMateDemo() {
             mode="tryon"
             showMesh={showMesh}
             onQuality={onTrackingQuality}
+            gazeStatus={gazeStatus}
+            showGazeGuide
+            onGaze={setGazeStatus}
           />
           {cameraError && (
             <p className="camera-error tryon-error">{cameraError}</p>
@@ -944,6 +949,7 @@ export default function MirrorMateDemo() {
             landmarksRef={coachLandmarksRef}
             onStatus={onMeshStatus}
             onQuality={onTrackingQuality}
+            onGaze={setGazeStatus}
           />
           <aside className="lesson-panel">
             <div>
@@ -1019,6 +1025,9 @@ export default function MirrorMateDemo() {
               onQuality={onTrackingQuality}
               focusMode={focusMode}
               focusZone={current.zone}
+              gazeStatus={gazeStatus}
+              showGazeGuide
+              onGaze={setGazeStatus}
             />
             </div>
             <div className="coach-mirror-cell target-look-cell">
@@ -1186,6 +1195,9 @@ function LiveMirror({
   brushDirection,
   landmarksRef,
   onQuality,
+  gazeStatus = "unknown",
+  showGazeGuide = false,
+  onGaze,
   focusMode = "full",
   focusZone,
 }: {
@@ -1203,6 +1215,9 @@ function LiveMirror({
   brushDirection?: string;
   landmarksRef?: React.RefObject<FaceLandmarks | null>;
   onQuality: (q: TrackingQuality) => void;
+  gazeStatus?: GazeStatus;
+  showGazeGuide?: boolean;
+  onGaze?: (status: GazeStatus) => void;
   focusMode?: FocusMode;
   focusZone?: string;
 }) {
@@ -1239,7 +1254,14 @@ function LiveMirror({
         landmarksRef={landmarksRef}
         onStatus={onMeshStatus}
         onQuality={onQuality}
+        onGaze={onGaze}
       />
+      {camera && !fallback && showGazeGuide && gazeStatus === "down" && (
+        <div className="eye-line-guide" role="status">
+          <i aria-hidden="true" />
+          视线稍移到屏幕顶端镜头旁，预览更接近对镜效果
+        </div>
+      )}
       <div className="mirror-caption">
         <span>{mode === "tryon" ? "LIVE LOOK" : "LIVE COACH"}</span>
         <b>{fallback ? "示例脸降级模式" : "妆效跟随面部姿态"}</b>
