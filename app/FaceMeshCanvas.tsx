@@ -8,6 +8,7 @@ import {
 } from "@mediapipe/tasks-vision";
 import { trackingQuality } from "./trackingQuality";
 import { smoothLandmarks } from "./faceSmoothing";
+import type { MakeupEffectProfile } from "./makeupAnalysis";
 import type { TrackingQuality } from "./trackingQuality";
 export type { TrackingQuality } from "./trackingQuality";
 export type FaceLandmarks = NormalizedLandmark[];
@@ -25,6 +26,7 @@ type Props = {
   videoRef: RefObject<HTMLVideoElement | null>;
   enabled: boolean;
   palette: string[];
+  effectProfile: MakeupEffectProfile;
   intensity: number;
   look: "daily" | "smoky" | "contour";
   teachingZone?: string;
@@ -255,6 +257,44 @@ function outlineCoordinates(
   ctx.restore();
 }
 
+function polygonArea(coordinates: CanvasPoint[]) {
+  return Math.abs(coordinates.reduce((sum, point, index) => {
+    const next = coordinates[(index + 1) % coordinates.length];
+    return sum + point.x * next.y - next.x * point.y;
+  }, 0) / 2);
+}
+
+function balancedAlpha(base: number, left: CanvasPoint[], right: CanvasPoint[]) {
+  const leftArea = Math.max(1, polygonArea(left));
+  const rightArea = Math.max(1, polygonArea(right));
+  const mean = (leftArea + rightArea) / 2;
+  // Landmark geometry is intentionally faithful to the user's face, but the
+  // pigment density should not become visibly heavier on the smaller side.
+  return [
+    base * Math.max(0.82, Math.min(1.18, mean / leftArea)),
+    base * Math.max(0.82, Math.min(1.18, mean / rightArea)),
+  ] as const;
+}
+
+function lightingCompensation(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
+  try {
+    const sampleIds = [1, 4, 6, 168, 197];
+    const samples = sampleIds.map((id) => {
+      const point = toCanvasPoint(points[id], ctx.canvas);
+      return ctx.getImageData(
+        Math.max(0, Math.min(ctx.canvas.width - 1, Math.round(point.x))),
+        Math.max(0, Math.min(ctx.canvas.height - 1, Math.round(point.y))), 1, 1,
+      ).data;
+    });
+    const luma = samples.reduce((sum, rgba) => sum + 0.2126 * rgba[0] + 0.7152 * rgba[1] + 0.0722 * rgba[2], 0) / samples.length;
+    // Dim webcam scenes need a touch more pigment; bright scenes need less to
+    // avoid a chalky mask. Keep the range deliberately conservative.
+    return Math.max(0.86, Math.min(1.16, 1.08 - (luma / 255) * 0.16));
+  } catch {
+    return 1;
+  }
+}
+
 function drawMesh(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
   ctx.save();
   FaceLandmarker.FACE_LANDMARKS_TESSELATION.forEach(({ start, end }) => {
@@ -306,6 +346,7 @@ function renderLook(
   ctx: CanvasRenderingContext2D,
   points: NormalizedLandmark[],
   palette: string[],
+  effectProfile: MakeupEffectProfile,
   intensity: number,
   look: Props["look"],
   mode: Props["mode"],
@@ -314,7 +355,8 @@ function renderLook(
   // Use layered translucent pigment rather than a single opaque mask. This
   // keeps skin texture visible while making the selected look legible on a
   // webcam, even at the default 55% intensity.
-  const a = Math.max(0.13, Math.min(0.72, (intensity / 100) * 0.78));
+  const light = lightingCompensation(ctx, points);
+  const a = Math.max(0.13, Math.min(0.72, (intensity / 100) * 0.78 * light));
   const guide = "rgba(255,255,255,.9)";
   const leftLid = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW);
   const rightLid = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW);
@@ -329,8 +371,9 @@ function renderLook(
       const useJaw = teachingZone === "jaw" || teachingZone === "scan";
       const left = useJaw ? LEFT_JAW : LEFT_CHEEK;
       const right = useJaw ? RIGHT_JAW : RIGHT_CHEEK;
-      softlyFillPolygon(ctx, points, left, palette[1], a * 0.36, 12, "multiply");
-      softlyFillPolygon(ctx, points, right, palette[1], a * 0.36, 12, "multiply");
+      const [leftAlpha, rightAlpha] = balancedAlpha(a * 0.36, left.map((id) => toCanvasPoint(points[id], ctx.canvas)), right.map((id) => toCanvasPoint(points[id], ctx.canvas)));
+      softlyFillPolygon(ctx, points, left, effectProfile.contour, leftAlpha, 12, "multiply");
+      softlyFillPolygon(ctx, points, right, effectProfile.contour, rightAlpha, 12, "multiply");
       outlineCoordinates(ctx, left.map((id) => toCanvasPoint(points[id], ctx.canvas)), guide);
       outlineCoordinates(ctx, right.map((id) => toCanvasPoint(points[id], ctx.canvas)), guide);
     } else {
@@ -342,9 +385,10 @@ function renderLook(
           : zone === "lower"
             ? [leftLower, rightLower]
             : [leftLid, rightLid];
-      const color = zone === "highlight" ? palette[2] : palette[0];
-      softlyFillCoordinates(ctx, left, color, a * 0.62, zone === "liner" ? 2 : 5, zone === "liner" ? "multiply" : "soft-light");
-      softlyFillCoordinates(ctx, right, color, a * 0.62, zone === "liner" ? 2 : 5, zone === "liner" ? "multiply" : "soft-light");
+      const color = zone === "highlight" ? palette[2] : zone === "lower" ? effectProfile.lowerEye : zone === "outer" || zone === "liner" ? effectProfile.eyeOuter : effectProfile.eyeBase;
+      const [leftAlpha, rightAlpha] = balancedAlpha(a * effectProfile.eyeOpacity, left, right);
+      softlyFillCoordinates(ctx, left, color, leftAlpha, zone === "liner" ? 2 : 5, zone === "liner" ? "multiply" : "soft-light");
+      softlyFillCoordinates(ctx, right, color, rightAlpha, zone === "liner" ? 2 : 5, zone === "liner" ? "multiply" : "soft-light");
       outlineCoordinates(ctx, left, guide);
       outlineCoordinates(ctx, right, guide);
     }
@@ -369,21 +413,27 @@ function renderLook(
     // by short-video makeup effects: diffuse base, darker outer corner, and
     // a tiny centre highlight. There are deliberately no hard outlines.
     const baseBlend = look === "smoky" ? "source-over" : "soft-light";
-    softlyFillCoordinates(ctx, leftLid, palette[0], a * 0.7, 5, baseBlend);
-    softlyFillCoordinates(ctx, rightLid, palette[0], a * 0.7, 5, baseBlend);
+    const [leftBaseAlpha, rightBaseAlpha] = balancedAlpha(a * effectProfile.eyeOpacity, leftLid, rightLid);
+    softlyFillCoordinates(ctx, leftLid, effectProfile.eyeBase, leftBaseAlpha, 5, baseBlend);
+    softlyFillCoordinates(ctx, rightLid, effectProfile.eyeBase, rightBaseAlpha, 5, baseBlend);
     const outerA = look === "smoky" ? a * 1.05 : a * 0.72;
-    softlyFillCoordinates(ctx, leftOuterLid, palette[1], outerA, 6, "multiply");
-    softlyFillCoordinates(ctx, rightOuterLid, palette[1], outerA, 6, "multiply");
-    softlyFillCoordinates(ctx, leftLower, palette[1], a * 0.14, 3, "multiply");
-    softlyFillCoordinates(ctx, rightLower, palette[1], a * 0.14, 3, "multiply");
-    softlyFillPolygon(ctx, points, LEFT_CHEEK, palette[0], a * 0.34, 18, "soft-light");
-    softlyFillPolygon(ctx, points, RIGHT_CHEEK, palette[0], a * 0.34, 18, "soft-light");
-    softlyFillPolygon(ctx, points, LIPS, palette[1], a * 0.46, 5, "source-over");
+    const [leftOuterAlpha, rightOuterAlpha] = balancedAlpha(outerA * effectProfile.eyeOpacity, leftOuterLid, rightOuterLid);
+    softlyFillCoordinates(ctx, leftOuterLid, effectProfile.eyeOuter, leftOuterAlpha, 6, "multiply");
+    softlyFillCoordinates(ctx, rightOuterLid, effectProfile.eyeOuter, rightOuterAlpha, 6, "multiply");
+    const [leftLowerAlpha, rightLowerAlpha] = balancedAlpha(a * effectProfile.eyeOpacity * 0.2, leftLower, rightLower);
+    softlyFillCoordinates(ctx, leftLower, effectProfile.lowerEye, leftLowerAlpha, 3, "multiply");
+    softlyFillCoordinates(ctx, rightLower, effectProfile.lowerEye, rightLowerAlpha, 3, "multiply");
+    const leftCheek = LEFT_CHEEK.map((id) => toCanvasPoint(points[id], ctx.canvas));
+    const rightCheek = RIGHT_CHEEK.map((id) => toCanvasPoint(points[id], ctx.canvas));
+    const [leftCheekAlpha, rightCheekAlpha] = balancedAlpha(a * effectProfile.cheekOpacity, leftCheek, rightCheek);
+    softlyFillPolygon(ctx, points, LEFT_CHEEK, effectProfile.cheek, leftCheekAlpha, 18, "soft-light");
+    softlyFillPolygon(ctx, points, RIGHT_CHEEK, effectProfile.cheek, rightCheekAlpha, 18, "soft-light");
+    softlyFillPolygon(ctx, points, LIPS, effectProfile.lip, a * effectProfile.lipOpacity, 5, "soft-light");
   } else {
-    softlyFillPolygon(ctx, points, LEFT_CONTOUR, palette[1], a * 0.58, 17, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_CONTOUR, palette[1], a * 0.58, 17, "multiply");
-    softlyFillPolygon(ctx, points, LEFT_JAW, palette[1], a * 0.34, 18, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_JAW, palette[1], a * 0.34, 18, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_CONTOUR, effectProfile.contour, a * 0.58, 17, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_CONTOUR, effectProfile.contour, a * 0.58, 17, "multiply");
+    softlyFillPolygon(ctx, points, LEFT_JAW, effectProfile.contour, a * 0.34, 18, "multiply");
+    softlyFillPolygon(ctx, points, RIGHT_JAW, effectProfile.contour, a * 0.34, 18, "multiply");
   }
 }
 
@@ -391,6 +441,7 @@ export default function FaceMeshCanvas({
   videoRef,
   enabled,
   palette,
+  effectProfile,
   intensity,
   look,
   teachingZone,
@@ -405,6 +456,7 @@ export default function FaceMeshCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const latest = useRef({
     palette,
+    effectProfile,
     intensity,
     look,
     teachingZone,
@@ -413,8 +465,8 @@ export default function FaceMeshCanvas({
     brushDirection,
   });
   useEffect(() => {
-    latest.current = { palette, intensity, look, teachingZone, mode, showMesh, brushDirection };
-  }, [palette, intensity, look, teachingZone, mode, showMesh, brushDirection]);
+    latest.current = { palette, effectProfile, intensity, look, teachingZone, mode, showMesh, brushDirection };
+  }, [palette, effectProfile, intensity, look, teachingZone, mode, showMesh, brushDirection]);
 
   useEffect(() => {
     if (!enabled || landmarksRef) return;
@@ -487,7 +539,7 @@ export default function FaceMeshCanvas({
               onGaze?.(gaze);
             }
             if (s.showMesh) drawMesh(ctx, points);
-            renderLook(ctx, points, s.palette, s.intensity, s.look, s.mode, s.teachingZone);
+            renderLook(ctx, points, s.palette, s.effectProfile, s.intensity, s.look, s.mode, s.teachingZone);
             if(s.brushDirection) drawBrushDirection(ctx,points,s.teachingZone);
           } else {
             previousPoints = null;
@@ -540,7 +592,7 @@ export default function FaceMeshCanvas({
             onGaze?.(gaze);
           }
           if (s.showMesh) drawMesh(ctx, points);
-          renderLook(ctx, points, s.palette, s.intensity, s.look, s.mode, s.teachingZone);
+          renderLook(ctx, points, s.palette, s.effectProfile, s.intensity, s.look, s.mode, s.teachingZone);
           if (s.brushDirection) drawBrushDirection(ctx, points, s.teachingZone);
         }
       }

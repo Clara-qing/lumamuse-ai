@@ -10,8 +10,9 @@ import {
 } from "react";
 import FaceMeshCanvas, { FaceMeshTracker, MeshStatus } from "./FaceMeshCanvas";
 import type { FaceLandmarks, GazeStatus, TrackingQuality } from "./FaceMeshCanvas";
-import { extractReferenceAnalysis } from "./makeupAnalysis";
-import type { ReferenceAnalysis, RGB } from "./makeupAnalysis";
+import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { extractReferenceAnalysis, profileFromPalette, refineReferenceAnalysisByLandmarks } from "./makeupAnalysis";
+import type { MakeupEffectProfile, ReferenceAnalysis, RGB } from "./makeupAnalysis";
 import ReferencePrecisionLab from "./ReferencePrecisionLab";
 import CloudMakeupTransfer from "./CloudMakeupTransfer";
 import {
@@ -144,26 +145,51 @@ const templates: Record<
 };
 
 const defaultPalette = ["#b97872", "#6f4543", "#e7c0ad"];
+const defaultEffectProfile: MakeupEffectProfile = {
+  eyeBase: defaultPalette[0], eyeOuter: defaultPalette[1], lowerEye: defaultPalette[1],
+  cheek: defaultPalette[0], lip: defaultPalette[1], contour: defaultPalette[1],
+  eyeOpacity: 0.55, cheekOpacity: 0.38, lipOpacity: 0.52, source: "palette",
+};
+const FACE_MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm";
 function analyzeReferenceImage(file: File): Promise<ReferenceAnalysis> {
   return new Promise((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
-    img.onload = () => {
+    img.onload = async () => {
       const canvas = document.createElement("canvas");
-      canvas.width = 30;
-      canvas.height = 30;
+      const scale = Math.min(1, 420 / Math.max(img.naturalWidth, img.naturalHeight));
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         resolve(extractReferenceAnalysis([]));
         return;
       }
-      ctx.drawImage(img, 0, 0, 30, 30);
-      const d = ctx.getImageData(0, 0, 30, 30).data;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imageData.data;
       const pixels: RGB[] = [];
-      for (let i = 0; i < d.length; i += 16)
+      for (let i = 0; i < d.length; i += 64)
         if (d[i + 3] > 100) pixels.push([d[i], d[i + 1], d[i + 2]]);
+      let analysis = extractReferenceAnalysis(pixels);
+      try {
+        const vision = await FilesetResolver.forVisionTasks(VISION_WASM);
+        const detector = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" },
+          runningMode: "IMAGE", numFaces: 1,
+        });
+        const landmarks = detector.detect(img).faceLandmarks[0];
+        detector.close();
+        if (landmarks) analysis = refineReferenceAnalysisByLandmarks(
+          analysis, imageData.data, canvas.width, canvas.height, landmarks,
+        );
+      } catch {
+        // Generic palette analysis remains available when the local vision
+        // model is offline or the reference is not a detectable frontal face.
+      }
       URL.revokeObjectURL(url);
-      resolve(extractReferenceAnalysis(pixels));
+      resolve(analysis);
     };
     img.onerror = () => resolve(extractReferenceAnalysis([]));
     img.src = url;
@@ -218,6 +244,7 @@ export default function MirrorMateDemo() {
     [reference, setReference] = useState<string | null>(null),
     [referenceFile, setReferenceFile] = useState<File | null>(null),
     [palette, setPalette] = useState(defaultPalette),
+    [effectProfile, setEffectProfile] = useState<MakeupEffectProfile>(defaultEffectProfile),
     [templateKey, setTemplateKey] = useState<TemplateKey>("daily"),
     [prompt, setPrompt] = useState("低饱和、干净、日常通勤"),
     [promptDirty, setPromptDirty] = useState(false),
@@ -309,6 +336,7 @@ export default function MirrorMateDemo() {
     const analysis = await analyzeReferenceImage(file);
     setReferenceAnalysis(analysis);
     setPalette(analysis.palette);
+    setEffectProfile(analysis.effectProfile);
     setTemplateKey(analysis.suggestedTemplate);
     setIntensity(analysis.suggestedIntensity);
     setPrompt(
@@ -319,7 +347,9 @@ export default function MirrorMateDemo() {
       "范本仅在本机内存中读取",
       analysis.fallback
         ? "图片解析失败：使用安全默认妆效"
-        : `已聚类三组妆效色：${analysis.temperature} / ${analysis.contrast}`,
+        : analysis.effectProfile.source === "reference-regions"
+          ? "已定位参考脸的眼影、腮红与唇色，并将其同步到实时妆效"
+          : `已聚类三组妆效色：${analysis.temperature} / ${analysis.contrast}`,
     ]);
     setStage("design");
   }
@@ -333,13 +363,15 @@ export default function MirrorMateDemo() {
           : "daily";
     setTemplateKey(key);
     if (!reference) {
-      if (p.includes("桃") || p.includes("甜"))
-        setPalette(["#d88991", "#873e4d", "#f1c1b3"]);
-      else if (p.includes("冷") || p.includes("灰"))
-        setPalette(["#8d7d89", "#453b49", "#c8bac3"]);
-      else if (p.includes("橘") || p.includes("暖"))
-        setPalette(["#c77c62", "#744334", "#efbea3"]);
-      else setPalette(defaultPalette);
+      const nextPalette: [string, string, string] = p.includes("桃") || p.includes("甜")
+        ? ["#d88991", "#873e4d", "#f1c1b3"]
+        : p.includes("冷") || p.includes("灰")
+          ? ["#8d7d89", "#453b49", "#c8bac3"]
+          : p.includes("橘") || p.includes("暖")
+            ? ["#c77c62", "#744334", "#efbea3"]
+            : defaultPalette;
+      setPalette(nextPalette);
+      setEffectProfile(profileFromPalette(nextPalette, intensity));
     }
     setPromptDirty(false);
     setEvents((v) => [...v, `风格解释：${templates[key].name}`]);
@@ -621,6 +653,7 @@ export default function MirrorMateDemo() {
     setReference(null);
     setReferenceFile(null);
     setPalette(defaultPalette);
+    setEffectProfile(defaultEffectProfile);
     setTemplateKey("daily");
     setPrompt("低饱和、干净、日常通勤");
     setPromptDirty(false);
@@ -897,7 +930,11 @@ export default function MirrorMateDemo() {
                   aria-label={`使用色板 ${i + 1}`}
                   key={c + i}
                   style={{ background: c }}
-                  onClick={() => setPalette([c, shift(c, -0.2), shift(c, 0.3)])}
+                  onClick={() => {
+                    const nextPalette: [string, string, string] = [c, shift(c, -0.2), shift(c, 0.3)];
+                    setPalette(nextPalette);
+                    setEffectProfile(profileFromPalette(nextPalette, intensity));
+                  }}
                 />
               ))}
             </div>
@@ -929,6 +966,7 @@ export default function MirrorMateDemo() {
             palette={palette}
             intensity={intensity}
             look={templateKey}
+            effectProfile={effectProfile}
             mode="tryon"
             showMesh={showMesh}
             onQuality={onTrackingQuality}
@@ -1017,6 +1055,7 @@ export default function MirrorMateDemo() {
               palette={palette}
               intensity={intensity}
               look={templateKey}
+              effectProfile={effectProfile}
               teachingZone={current.zone}
               mode="teach"
               showMesh={false}
@@ -1041,6 +1080,7 @@ export default function MirrorMateDemo() {
                 palette={palette}
                 intensity={intensity}
                 look={templateKey}
+                effectProfile={effectProfile}
                 mode="tryon"
                 showMesh={false}
                 onQuality={onTrackingQuality}
@@ -1187,6 +1227,7 @@ function LiveMirror({
   meshStatus,
   onMeshStatus,
   palette,
+  effectProfile,
   intensity,
   look,
   teachingZone,
@@ -1207,6 +1248,7 @@ function LiveMirror({
   meshStatus: MeshStatus;
   onMeshStatus: (s: MeshStatus) => void;
   palette: string[];
+  effectProfile: MakeupEffectProfile;
   intensity: number;
   look: TemplateKey;
   teachingZone?: string;
@@ -1245,6 +1287,7 @@ function LiveMirror({
         videoRef={videoRef}
         enabled={camera}
         palette={palette}
+        effectProfile={effectProfile}
         intensity={intensity}
         look={look}
         teachingZone={teachingZone}
