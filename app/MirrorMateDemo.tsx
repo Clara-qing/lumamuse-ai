@@ -176,10 +176,7 @@ function analyzeReferenceImage(file: File): Promise<ReferenceAnalysis> {
       try {
         const vision = await FilesetResolver.forVisionTasks(VISION_WASM);
         const detector = await FaceLandmarker.createFromOptions(vision, {
-          // Reference analysis is a one-off task: CPU is slower but much more
-          // reliable across laptops than a GPU delegate, avoiding silent
-          // fallback to the generic palette.
-          baseOptions: { modelAssetPath: FACE_MODEL, delegate: "CPU" },
+          baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" },
           runningMode: "IMAGE", numFaces: 1,
         });
         const landmarks = detector.detect(img).faceLandmarks[0];
@@ -821,11 +818,6 @@ export default function MirrorMateDemo() {
                   <span>{referenceAnalysis.contrast}</span>
                   <small>
                     建议浓度 {referenceAnalysis.suggestedIntensity}%
-                  </small>
-                  <small>
-                    {referenceAnalysis.effectProfile.source === "reference-regions"
-                      ? "已从参考脸剥离分区妆色差分"
-                      : "未识别到清晰正脸：暂用色板兜底"}
                   </small>
                 </div>
               )}

@@ -135,6 +135,7 @@ const RIGHT_EYE_OUTER = [362, 398, 384, 385, 386, 334, 293, 300];
 const LEFT_CHEEK = [50, 101, 205, 187, 123, 116];
 const RIGHT_CHEEK = [280, 330, 425, 411, 352, 345];
 const LIPS = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+const NOSE_SKIN = [1, 4, 5, 6, 168, 197, 195];
 
 function pointInPolygon(x: number, y: number, polygon: ReferenceLandmark[]) {
   let inside = false;
@@ -167,40 +168,11 @@ function sampleRegion(
   return samples;
 }
 
-function sampleSkinPatches(
-  pixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-  landmarks: ReferenceLandmark[],
-): RGB[] {
-  // These are small, usually unpainted patches on the bridge and sides of the
-  // nose. Sampling disks is more stable than treating a loose set of mesh
-  // points as a polygon (which can self-intersect on different face shapes).
-  const sampleIds = [6, 168, 197, 4, 5];
-  const radius = Math.max(2, Math.round(Math.min(width, height) * 0.012));
-  const samples: RGB[] = [];
-  sampleIds.forEach((id) => {
-    const point = landmarks[id];
-    if (!point) return;
-    const centerX = Math.round(point.x * width);
-    const centerY = Math.round(point.y * height);
-    for (let y = centerY - radius; y <= centerY + radius; y += 2) for (let x = centerX - radius; x <= centerX + radius; x += 2) {
-      if (x < 0 || x >= width || y < 0 || y >= height || (x - centerX) ** 2 + (y - centerY) ** 2 > radius ** 2) continue;
-      const offset = (y * width + x) * 4;
-      if (pixels[offset + 3] > 180) samples.push([pixels[offset], pixels[offset + 1], pixels[offset + 2]]);
-    }
-  });
-  return samples;
-}
-
-function pigmentFromSkinDelta(region: RGB, skin: RGB, amount: number): RGB {
-  // A neutral 128 value is visually neutral for soft-light. Encoding only the
-  // delta from the reference's bare skin means we transfer "makeup pigment",
-  // not the reference person's complexion, illumination, or facial shadow.
+function amplifyAgainstSkin(region: RGB, skin: RGB, amount: number): RGB {
   return [
-    clamp(128 + (region[0] - skin[0]) * amount),
-    clamp(128 + (region[1] - skin[1]) * amount),
-    clamp(128 + (region[2] - skin[2]) * amount),
+    clamp(skin[0] + (region[0] - skin[0]) * amount),
+    clamp(skin[1] + (region[1] - skin[1]) * amount),
+    clamp(skin[2] + (region[2] - skin[2]) * amount),
   ];
 }
 
@@ -217,7 +189,7 @@ export function refineReferenceAnalysisByLandmarks(
   landmarks: ReferenceLandmark[],
 ): ReferenceAnalysis {
   if (landmarks.length < 400) return base;
-  const skin = average(sampleSkinPatches(pixels, width, height, landmarks));
+  const skin = average(sampleRegion(pixels, width, height, landmarks, NOSE_SKIN));
   const leftEye = average(sampleRegion(pixels, width, height, landmarks, LEFT_EYE_BAND));
   const rightEye = average(sampleRegion(pixels, width, height, landmarks, RIGHT_EYE_BAND));
   const leftOuter = average(sampleRegion(pixels, width, height, landmarks, LEFT_EYE_OUTER));
@@ -232,10 +204,10 @@ export function refineReferenceAnalysisByLandmarks(
   const eyeDifference = Math.sqrt(distance(eye, skin));
   const lipDifference = Math.sqrt(distance(lips, skin));
   const cheekDifference = Math.sqrt(distance(cheek, skin));
-  const eyeBase = pigmentFromSkinDelta(eye, skin, 1.55);
-  const eyeOuter = pigmentFromSkinDelta(outer, skin, 1.75);
-  const cheekColor = pigmentFromSkinDelta(cheek, skin, 1.4);
-  const lipColor = pigmentFromSkinDelta(lips, skin, 1.25);
+  const eyeBase = amplifyAgainstSkin(eye, skin, 1.55);
+  const eyeOuter = amplifyAgainstSkin(outer, skin, 1.75);
+  const cheekColor = amplifyAgainstSkin(cheek, skin, 1.4);
+  const lipColor = amplifyAgainstSkin(lips, skin, 1.25);
   const profile: MakeupEffectProfile = {
     eyeBase: hex(eyeBase),
     eyeOuter: hex(eyeOuter),
