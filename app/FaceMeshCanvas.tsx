@@ -88,6 +88,7 @@ function makeUpperLidBand(
   eyeIds: number[],
   browIds: number[],
   lift = 0.42,
+  lashInset = 0.075,
   start = 0,
   end = eyeIds.length - 1,
 ): CanvasPoint[] {
@@ -96,8 +97,14 @@ function makeUpperLidBand(
     const browIndex = Math.round((index / (lash.length - 1)) * (browIds.length - 1));
     return interpolatePoint(point, toCanvasPoint(points[browIds[browIndex]], ctx.canvas), lift);
   });
+  // Start a few pixels *above* the tracked lash curve. Apart from making the
+  // pigment look more like it sits on skin, this deliberately leaves the
+  // cornea and the wet lash line outside of the makeup mask.
+  const lidBase = lash.map((point, index) =>
+    interpolatePoint(point, crease[index], lashInset),
+  );
   return [
-    ...lash.slice(start, end + 1),
+    ...lidBase.slice(start, end + 1),
     ...crease.slice(start, end + 1).reverse(),
   ];
 }
@@ -111,12 +118,23 @@ function makeLowerLidBand(
 ): CanvasPoint[] {
   const upper = upperIds.map((id) => toCanvasPoint(points[id], ctx.canvas));
   const lash = lowerIds.map((id) => toCanvasPoint(points[id], ctx.canvas));
-  const upperY = upper.reduce((total, point) => total + point.y, 0) / upper.length;
-  const lowerY = lash.reduce((total, point) => total + point.y, 0) / lash.length;
-  const eyeHeight = Math.max(5, Math.abs(lowerY - upperY));
+  // Move away from each eye's upper-to-lower vector instead of simply moving
+  // downward in screen coordinates. This follows a tilted face and prevents
+  // a lower-eye effect from drifting back over the iris.
+  const outerSkin = lash.map((point, index) => {
+    const upperIndex = Math.round((index / (lash.length - 1)) * (upper.length - 1));
+    const upperPoint = upper[upperIndex];
+    const dx = point.x - upperPoint.x;
+    const dy = point.y - upperPoint.y;
+    const distance = Math.max(5, Math.hypot(dx, dy));
+    return {
+      x: point.x + (dx / distance) * distance * depth,
+      y: point.y + (dy / distance) * distance * depth,
+    };
+  });
   return [
     ...lash,
-    ...lash.map((point) => ({ x: point.x, y: point.y + eyeHeight * depth })).reverse(),
+    ...outerSkin.reverse(),
   ];
 }
 
@@ -196,8 +214,11 @@ function softlyFillCoordinates(
     ...coordinates.map((point) => Math.hypot(point.x - center.x, point.y - center.y)),
   );
   const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius * 1.18);
+  // The two inner stops give pigment a denser centre but retain visible skin
+  // texture through blend modes. A single flat fill is what reads as a sticker.
   gradient.addColorStop(0, rgba(color, alpha));
-  gradient.addColorStop(0.62, rgba(color, alpha * 0.58));
+  gradient.addColorStop(0.38, rgba(color, alpha * 0.78));
+  gradient.addColorStop(0.72, rgba(color, alpha * 0.35));
   gradient.addColorStop(1, rgba(color, 0));
   ctx.save();
   ctx.filter = `blur(${blur}px)`;
@@ -297,10 +318,10 @@ function renderLook(
   const guide = "rgba(255,255,255,.9)";
   const leftLid = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW);
   const rightLid = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW);
-  const leftOuterLid = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW, 0.42, 0, 4);
-  const rightOuterLid = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW, 0.42, 0, 4);
-  const leftLiner = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW, 0.16);
-  const rightLiner = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW, 0.16);
+  const leftOuterLid = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW, 0.42, 0.09, 0, 4);
+  const rightOuterLid = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW, 0.42, 0.09, 0, 4);
+  const leftLiner = makeUpperLidBand(ctx, points, LEFT_UPPER_LID, LEFT_BROW, 0.16, 0.025);
+  const rightLiner = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW, 0.16, 0.025);
   const leftLower = makeLowerLidBand(ctx, points, LEFT_LOWER_LID, LEFT_UPPER_LID);
   const rightLower = makeLowerLidBand(ctx, points, RIGHT_LOWER_LID, RIGHT_UPPER_LID);
   if (mode === "teach") {
