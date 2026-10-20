@@ -858,17 +858,22 @@ export default function MirrorMateDemo() {
             // session.created.  Waiting for session.updated here can leave a
             // perfectly valid session muted forever, because not every
             // WebRTC session echoes that event on the browser data channel.
-            if (realtimeConfigSentRef.current) return;
-            realtimeConfigSentRef.current = true;
+            // A browser-created and a server-created control channel can both
+            // exist.  Configure every channel that actually announces a
+            // session, rather than assuming the first one is the control
+            // channel.  This is what keeps the realtime persona from falling
+            // back to the provider default on different browser/edge paths.
             realtimeChannelRef.current = eventChannel;
             if (track) track.enabled = true;
             sender?.replaceTrack(track ?? null).catch(() => {});
             realtimeActiveRef.current = true;
-            setVoiceStatus("listening");
-            updateVoiceTranscript("已接通 MirrorMate 实时语音。小妆伴正在听，你可以直接说话。 ");
+            realtimeConfigSentRef.current = true;
+            updateVoiceTranscript("正在同步小妆伴的身份与本次妆容信息…");
             sendRealtimeSessionUpdate(eventChannel, coachSnapshotRef.current ?? coachSnapshot);
           } else if (data.type === "session.updated") {
             if (realtimeConfigSentRef.current && realtimeActiveRef.current) {
+              setVoiceStatus("listening");
+              updateVoiceTranscript("已接通 MirrorMate 实时语音。小妆伴正在听，你可以直接说话。 ");
               requestRealtimeWelcome(eventChannel);
             }
           } else if (realtimeActiveRef.current && data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
@@ -892,7 +897,6 @@ export default function MirrorMateDemo() {
       // session.created, so the handler above promotes it only at that point.
       listenForRealtimeEvents(offerChannel);
       pc.ondatachannel = (event) => {
-        if (event.channel.label !== "txt") return;
         listenForRealtimeEvents(event.channel);
       };
       const offer = await pc.createOffer();
