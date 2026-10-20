@@ -16,12 +16,11 @@ test("server-renders the MirrorMate product shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /LumaMuse 光感妆伴/);
+  assert.match(html, /MirrorMate/);
   assert.match(html, /喜欢的妆/);
-  assert.match(html, /本地隐私模式/);
-  assert.match(html, /上传妆容范本/);
-  assert.match(html, /478 点实时定位/);
-  assert.match(html, /满意后再教学/);
-  assert.match(html, /用文字描述风格/);
+  assert.match(html, /BEAUTY,.*IN FOCUS/);
+  assert.match(html, /MIRRORMATE \/ MOMENTS/);
+  assert.match(html, /赴约之前/);
+  assert.match(html, /开始体验/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });

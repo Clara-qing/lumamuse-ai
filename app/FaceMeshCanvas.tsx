@@ -1,5 +1,9 @@
 "use client";
 
+/* Legacy stroke helpers remain available for the instructional overlay; the
+ * live look intentionally uses landmark-bounded pigment bands instead. */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 import { RefObject, useEffect, useRef } from "react";
 import {
   FaceLandmarker,
@@ -31,6 +35,7 @@ type Props = {
   look: "daily" | "smoky" | "contour";
   teachingZone?: string;
   mode: "tryon" | "teach";
+  effectsEnabled?: boolean;
   showMesh?: boolean;
   brushDirection?: string;
   landmarksRef?: RefObject<FaceLandmarks | null>;
@@ -65,6 +70,7 @@ const LEFT_JAW = [234, 127, 162, 21, 54, 103, 67, 109];
 const RIGHT_JAW = [454, 356, 389, 251, 284, 332, 297, 338];
 const LEFT_IRIS = [468, 469, 470, 471, 472];
 const RIGHT_IRIS = [473, 474, 475, 476, 477];
+const FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
 
 function rgba(hex: string, alpha: number) {
   const n = Number.parseInt(hex.replace("#", ""), 16);
@@ -154,6 +160,44 @@ function gazeStatus(points: NormalizedLandmark[]): GazeStatus {
   return left > 0.64 && right > 0.64 ? "down" : "aligned";
 }
 
+let pigmentLayer: HTMLCanvasElement | null = null;
+
+function getPigmentLayer(canvas: HTMLCanvasElement) {
+  if (typeof document === "undefined") return null;
+  if (!pigmentLayer) pigmentLayer = document.createElement("canvas");
+  if (pigmentLayer.width !== canvas.width || pigmentLayer.height !== canvas.height) {
+    pigmentLayer.width = canvas.width;
+    pigmentLayer.height = canvas.height;
+  }
+  return pigmentLayer;
+}
+
+function paintFeatheredShape(
+  ctx: CanvasRenderingContext2D,
+  coordinates: CanvasPoint[],
+  gradient: CanvasGradient,
+  blur: number,
+  blend: GlobalCompositeOperation,
+) {
+  const layer = getPigmentLayer(ctx.canvas);
+  if (!layer) return;
+  const layerCtx = layer.getContext("2d");
+  if (!layerCtx) return;
+  layerCtx.clearRect(0, 0, layer.width, layer.height);
+  layerCtx.save();
+  layerCtx.filter = `blur(${blur}px)`;
+  layerCtx.fillStyle = gradient;
+  layerCtx.beginPath();
+  coordinates.forEach((point, index) => index ? layerCtx.lineTo(point.x, point.y) : layerCtx.moveTo(point.x, point.y));
+  layerCtx.closePath();
+  layerCtx.fill();
+  layerCtx.restore();
+  ctx.save();
+  ctx.globalCompositeOperation = blend;
+  ctx.drawImage(layer, 0, 0);
+  ctx.restore();
+}
+
 function softlyFillPolygon(
   ctx: CanvasRenderingContext2D,
   points: NormalizedLandmark[],
@@ -177,24 +221,14 @@ function softlyFillPolygon(
     20,
     ...coordinates.map((point) => Math.hypot(point.x - center.x, point.y - center.y)),
   );
-  const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius * 1.2);
+  const layer = getPigmentLayer(ctx.canvas);
+  const layerCtx = layer?.getContext("2d");
+  if (!layerCtx) return;
+  const gradient = layerCtx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius * 1.2);
   gradient.addColorStop(0, rgba(color, alpha));
   gradient.addColorStop(0.68, rgba(color, alpha * 0.6));
   gradient.addColorStop(1, rgba(color, 0));
-
-  ctx.save();
-  ctx.filter = `blur(${blur}px)`;
-  ctx.globalCompositeOperation = blend;
-  ctx.beginPath();
-  coordinates.forEach((point, index) => {
-    if (index) ctx.lineTo(point.x, point.y);
-    else ctx.moveTo(point.x, point.y);
-  });
-  ctx.closePath();
-  ctx.clip();
-  ctx.fillStyle = gradient;
-  ctx.fillRect(center.x - radius * 1.4, center.y - radius * 1.4, radius * 2.8, radius * 2.8);
-  ctx.restore();
+  paintFeatheredShape(ctx, coordinates, gradient, blur, blend);
 }
 
 function softlyFillCoordinates(
@@ -215,26 +249,130 @@ function softlyFillCoordinates(
     14,
     ...coordinates.map((point) => Math.hypot(point.x - center.x, point.y - center.y)),
   );
-  const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius * 1.18);
+  const layer = getPigmentLayer(ctx.canvas);
+  const layerCtx = layer?.getContext("2d");
+  if (!layerCtx) return;
+  const gradient = layerCtx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius * 1.18);
   // The two inner stops give pigment a denser centre but retain visible skin
   // texture through blend modes. A single flat fill is what reads as a sticker.
   gradient.addColorStop(0, rgba(color, alpha));
   gradient.addColorStop(0.38, rgba(color, alpha * 0.78));
   gradient.addColorStop(0.72, rgba(color, alpha * 0.35));
   gradient.addColorStop(1, rgba(color, 0));
+  paintFeatheredShape(ctx, coordinates, gradient, blur, blend);
+}
+
+/**
+ * A diffuse, symmetric pigment cloud.  Unlike a clipped polygon this has no
+ * visible edge to read as a drawn shape, so it works well for cream blush,
+ * contour and liquid highlight.  Keeping the two centres mirrored around the
+ * nose bridge avoids one side of the face looking more heavily made up when a
+ * webcam landmark jitters for a frame.
+ */
+function softlyFillEllipse(
+  ctx: CanvasRenderingContext2D,
+  center: CanvasPoint,
+  radiusX: number,
+  radiusY: number,
+  color: string,
+  alpha: number,
+  blur: number,
+  blend: GlobalCompositeOperation,
+  rotation = 0,
+) {
+  const safeY = Math.max(8, radiusY);
   ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.rotate(rotation);
+  ctx.scale(Math.max(0.45, radiusX / safeY), 1);
+  const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, safeY);
+  gradient.addColorStop(0, rgba(color, alpha));
+  gradient.addColorStop(0.45, rgba(color, alpha * 0.72));
+  gradient.addColorStop(0.78, rgba(color, alpha * 0.24));
+  gradient.addColorStop(1, rgba(color, 0));
   ctx.filter = `blur(${blur}px)`;
   ctx.globalCompositeOperation = blend;
-  ctx.beginPath();
-  coordinates.forEach((point, index) => {
-    if (index) ctx.lineTo(point.x, point.y);
-    else ctx.moveTo(point.x, point.y);
-  });
-  ctx.closePath();
-  ctx.clip();
   ctx.fillStyle = gradient;
-  ctx.fillRect(center.x - radius * 1.4, center.y - radius * 1.4, radius * 2.8, radius * 2.8);
+  ctx.beginPath();
+  ctx.arc(0, 0, safeY, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
+}
+
+function applyFoundation(
+  ctx: CanvasRenderingContext2D,
+  points: NormalizedLandmark[],
+  shade: string,
+  intensity: number,
+) {
+  // Render into the same feathered pigment pipeline as colour makeup.  A hard
+  // canvas clip creates an obvious line at the hairline/forehead, especially
+  // under strong overhead lighting.
+  softlyFillPolygon(ctx, points, FACE_OVAL, shade, intensity * 0.5, 26, "source-over");
+  softlyFillPolygon(ctx, points, FACE_OVAL, "#fff0e9", intensity * 0.32, 30, "soft-light");
+}
+
+function averagePoint(coordinates: CanvasPoint[]) {
+  return coordinates.reduce(
+    (total, point) => ({ x: total.x + point.x / coordinates.length, y: total.y + point.y / coordinates.length }),
+    { x: 0, y: 0 },
+  );
+}
+
+function faceMakeupAnchors(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
+  const nose = toCanvasPoint(points[1], ctx.canvas);
+  const left = averagePoint(LEFT_CHEEK.map((id) => toCanvasPoint(points[id], ctx.canvas)));
+  const right = averagePoint(RIGHT_CHEEK.map((id) => toCanvasPoint(points[id], ctx.canvas)));
+  // Use the averaged height and mirrored X positions.  This is less literal
+  // than raw landmarks but much more flattering and stable for a live filter.
+  const cheekY = (left.y + right.y) / 2;
+  const cheekDistance = Math.max(26, (Math.abs(left.x - nose.x) + Math.abs(right.x - nose.x)) / 2);
+  const cheekLeft = { x: nose.x - cheekDistance, y: cheekY };
+  const cheekRight = { x: nose.x + cheekDistance, y: cheekY };
+  // Unlike blush, face-side sculpting must remain faithful to the real left
+  // and right contours while the head turns.  These anchors therefore use the
+  // live contour landmarks instead of a mirrored, fixed offset.
+  const leftSide = averagePoint(LEFT_CONTOUR.map((id) => toCanvasPoint(points[id], ctx.canvas)));
+  const rightSide = averagePoint(RIGHT_CONTOUR.map((id) => toCanvasPoint(points[id], ctx.canvas)));
+  const bridge = toCanvasPoint(points[6], ctx.canvas);
+  const tip = toCanvasPoint(points[4], ctx.canvas);
+  const noseWidth = Math.max(12, Math.abs(toCanvasPoint(points[98], ctx.canvas).x - toCanvasPoint(points[327], ctx.canvas).x));
+  return { cheekLeft, cheekRight, cheekDistance, leftSide, rightSide, bridge, tip, noseWidth };
+}
+
+function faceTurnFactor(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
+  const nose = toCanvasPoint(points[1], ctx.canvas);
+  const leftEdge = toCanvasPoint(points[234], ctx.canvas);
+  const rightEdge = toCanvasPoint(points[454], ctx.canvas);
+  const leftDistance = Math.max(1, Math.abs(nose.x - leftEdge.x));
+  const rightDistance = Math.max(1, Math.abs(rightEdge.x - nose.x));
+  const asymmetry = Math.abs(leftDistance - rightDistance) / (leftDistance + rightDistance);
+  // Makeup filtering needs a frontal-ish canvas.  When a face turns, a flat
+  // 2D pigment layer cannot faithfully wrap its far cheek, so fading it is
+  // more natural than allowing a shadow to float across the face.
+  return Math.max(0.18, Math.min(1, 1 - Math.max(0, asymmetry - 0.06) * 3.4));
+}
+
+function pairedEyeFactor(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
+  const openness = (upperIds: number[], lowerIds: number[]) => {
+    const upper = toCanvasPoint(points[upperIds[Math.floor(upperIds.length / 2)]], ctx.canvas);
+    const lower = toCanvasPoint(points[lowerIds[Math.floor(lowerIds.length / 2)]], ctx.canvas);
+    const first = toCanvasPoint(points[upperIds[0]], ctx.canvas);
+    const last = toCanvasPoint(points[upperIds.at(-1)!], ctx.canvas);
+    return Math.abs(lower.y - upper.y) / Math.max(1, Math.hypot(last.x - first.x, last.y - first.y));
+  };
+  const minimum = Math.min(openness(LEFT_UPPER_LID, LEFT_LOWER_LID), openness(RIGHT_UPPER_LID, RIGHT_LOWER_LID));
+  // If either eye is blinking / partly occluded, lower both eye overlays for
+  // that frame. A matched, softer pair looks better than one painted eyelid.
+  return Math.max(0.28, Math.min(1, (minimum - 0.045) * 15));
+}
+
+function scaleCoordinates(coordinates: CanvasPoint[], xScale: number, yScale: number) {
+  const center = averagePoint(coordinates);
+  return coordinates.map((point) => ({
+    x: center.x + (point.x - center.x) * xScale,
+    y: center.y + (point.y - center.y) * yScale,
+  }));
 }
 
 function outlineCoordinates(
@@ -293,6 +431,156 @@ function lightingCompensation(ctx: CanvasRenderingContext2D, points: NormalizedL
   } catch {
     return 1;
   }
+}
+
+function drawLashLine(
+  ctx: CanvasRenderingContext2D,
+  points: NormalizedLandmark[],
+  ids: number[],
+  color: string,
+  alpha: number,
+) {
+  const coordinates = ids.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  const width = Math.max(1.15, Math.hypot(coordinates[0].x - coordinates.at(-1)!.x, coordinates[0].y - coordinates.at(-1)!.y) * 0.035);
+  ctx.save();
+  ctx.strokeStyle = rgba(color, alpha);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = width;
+  ctx.shadowColor = rgba(color, alpha * 0.55);
+  ctx.shadowBlur = 1.5;
+  ctx.beginPath();
+  coordinates.forEach((point, index) => index ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLashes(
+  ctx: CanvasRenderingContext2D,
+  points: NormalizedLandmark[],
+  eyeIds: number[],
+  browIds: number[],
+  color: string,
+  alpha: number,
+) {
+  const lash = eyeIds.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  ctx.save();
+  ctx.strokeStyle = rgba(color, alpha);
+  ctx.lineCap = "round";
+  ctx.lineWidth = 1.05;
+  [1, 2, 3, 4, 5, 6].forEach((index) => {
+    const from = lash[index];
+    const brow = toCanvasPoint(points[browIds[Math.round((index / (lash.length - 1)) * (browIds.length - 1))]], ctx.canvas);
+    const length = Math.min(11, Math.max(4, Math.hypot(brow.x - from.x, brow.y - from.y) * 0.18));
+    const dx = brow.x - from.x, dy = brow.y - from.y, distance = Math.max(1, Math.hypot(dx, dy));
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.quadraticCurveTo(from.x + (dx / distance) * length * 0.4, from.y + (dy / distance) * length * 0.65, from.x + (dx / distance) * length, from.y + (dy / distance) * length);
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawBrows(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[], ids: number[], color: string, alpha: number) {
+  const coordinates = ids.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  ctx.save();
+  // Powder shadow first, then sparse short hairs: this is deliberately not a
+  // single dark marker line, which is the main reason virtual brows look fake.
+  ctx.strokeStyle = rgba(color, alpha * 0.52);
+  ctx.lineCap = "round";
+  ctx.lineWidth = Math.max(2.2, Math.hypot(coordinates[0].x - coordinates.at(-1)!.x, coordinates[0].y - coordinates.at(-1)!.y) * 0.105);
+  ctx.filter = "blur(1.15px)";
+  ctx.beginPath();
+  coordinates.forEach((point, index) => index ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+  ctx.stroke();
+  ctx.filter = "none";
+  ctx.strokeStyle = rgba(color, alpha * 0.42);
+  ctx.lineWidth = 0.8;
+  for (let index = 0; index < coordinates.length - 1; index += 1) {
+    const from = coordinates[index];
+    const to = coordinates[index + 1];
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const nx = -dy / length;
+    const ny = dx / length;
+    for (const position of [0.18, 0.52, 0.82]) {
+      const x = from.x + dx * position;
+      const y = from.y + dy * position;
+      ctx.beginPath();
+      ctx.moveTo(x - nx * 1.5, y - ny * 1.5);
+      ctx.lineTo(x + nx * 2.8, y + ny * 2.8);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawContacts(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[], ids: number[], color: string, alpha: number) {
+  const coordinates = ids.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  const center = coordinates.reduce((sum, point) => ({ x: sum.x + point.x / coordinates.length, y: sum.y + point.y / coordinates.length }), { x: 0, y: 0 });
+  const radius = Math.max(2.5, coordinates.reduce((sum, point) => sum + Math.hypot(point.x - center.x, point.y - center.y), 0) / coordinates.length);
+  ctx.save();
+  const radial = ctx.createRadialGradient(center.x, center.y, radius * 0.34, center.x, center.y, radius * 1.04);
+  radial.addColorStop(0, rgba(color, 0));
+  radial.addColorStop(0.48, rgba(color, alpha * 0.22));
+  radial.addColorStop(0.8, rgba(color, alpha * 0.76));
+  radial.addColorStop(1, rgba(color, 0));
+  ctx.fillStyle = radial;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius * 1.04, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = rgba(color, alpha * 0.62);
+  ctx.lineWidth = Math.max(0.8, radius * 0.28);
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius * 0.84, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawSoftCrease(
+  ctx: CanvasRenderingContext2D,
+  points: NormalizedLandmark[],
+  eyeIds: number[],
+  browIds: number[],
+  color: string,
+  alpha: number,
+) {
+  const lash = eyeIds.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  const crease = lash.map((point, index) => {
+    const brow = toCanvasPoint(points[browIds[Math.round((index / (lash.length - 1)) * (browIds.length - 1))]], ctx.canvas);
+    return interpolatePoint(point, brow, 0.46);
+  });
+  ctx.save();
+  ctx.strokeStyle = rgba(color, alpha);
+  ctx.lineWidth = Math.max(1.35, Math.hypot(crease[0].x - crease.at(-1)!.x, crease[0].y - crease.at(-1)!.y) * 0.022);
+  ctx.lineCap = "round";
+  ctx.filter = "blur(1.8px)";
+  ctx.globalCompositeOperation = "multiply";
+  ctx.beginPath();
+  crease.forEach((point, index) => index ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawSoftWing(
+  ctx: CanvasRenderingContext2D,
+  points: NormalizedLandmark[],
+  eyeIds: number[],
+  color: string,
+  alpha: number,
+) {
+  const eye = eyeIds.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  const nose = toCanvasPoint(points[1], ctx.canvas);
+  const first = eye[0];
+  const last = eye.at(-1)!;
+  const outer = Math.abs(first.x - nose.x) > Math.abs(last.x - nose.x) ? first : last;
+  const inner = outer === first ? last : first;
+  const span = Math.max(8, Math.hypot(outer.x - inner.x, outer.y - inner.y));
+  const outward = outer.x < nose.x ? -1 : 1;
+  const tip = { x: outer.x + outward * span * 0.23, y: outer.y - span * 0.1 };
+  const base = interpolatePoint(outer, inner, 0.24);
+  softlyFillCoordinates(ctx, [outer, base, tip], color, alpha, 1.45, "multiply");
 }
 
 function drawMesh(ctx: CanvasRenderingContext2D, points: NormalizedLandmark[]) {
@@ -366,8 +654,14 @@ function renderLook(
   const rightLiner = makeUpperLidBand(ctx, points, RIGHT_UPPER_LID, RIGHT_BROW, 0.16, 0.025);
   const leftLower = makeLowerLidBand(ctx, points, LEFT_LOWER_LID, LEFT_UPPER_LID);
   const rightLower = makeLowerLidBand(ctx, points, RIGHT_LOWER_LID, RIGHT_UPPER_LID);
+  const eyeA = a * pairedEyeFactor(ctx, points);
   if (mode === "teach") {
-    if (look === "contour") {
+    if (teachingZone === "prep") {
+      // Complexion preparation is a face-wide process.  Do not reuse the eye
+      // mask here: it makes a foundation lesson look like an eye-shadow guide.
+      softlyFillPolygon(ctx, points, FACE_OVAL, palette[2], a * 0.26, 22, "soft-light");
+      outlineCoordinates(ctx, FACE_OVAL.map((id) => toCanvasPoint(points[id], ctx.canvas)), guide);
+    } else if (look === "contour") {
       const useJaw = teachingZone === "jaw" || teachingZone === "scan";
       const left = useJaw ? LEFT_JAW : LEFT_CHEEK;
       const right = useJaw ? RIGHT_JAW : RIGHT_CHEEK;
@@ -378,6 +672,15 @@ function renderLook(
       outlineCoordinates(ctx, right.map((id) => toCanvasPoint(points[id], ctx.canvas)), guide);
     } else {
       const zone = teachingZone || "base";
+      if (zone === "cheek") {
+        const left = LEFT_CHEEK.map((id) => toCanvasPoint(points[id], ctx.canvas));
+        const right = RIGHT_CHEEK.map((id) => toCanvasPoint(points[id], ctx.canvas));
+        const [leftAlpha, rightAlpha] = balancedAlpha(a * effectProfile.cheekOpacity * 1.35, left, right);
+        softlyFillCoordinates(ctx, left, effectProfile.cheek, leftAlpha, 14, "soft-light");
+        softlyFillCoordinates(ctx, right, effectProfile.cheek, rightAlpha, 14, "soft-light");
+        outlineCoordinates(ctx, left, guide);
+        outlineCoordinates(ctx, right, guide);
+      } else {
       const [left, right] = zone === "outer"
         ? [leftOuterLid, rightOuterLid]
         : zone === "liner"
@@ -391,6 +694,7 @@ function renderLook(
       softlyFillCoordinates(ctx, right, color, rightAlpha, zone === "liner" ? 2 : 5, zone === "liner" ? "multiply" : "soft-light");
       outlineCoordinates(ctx, left, guide);
       outlineCoordinates(ctx, right, guide);
+      }
     }
     const nose = points[1];
     ctx.fillStyle = "rgba(255,255,255,.92)";
@@ -405,6 +709,75 @@ function renderLook(
     ctx.restore();
     return;
   }
+  // Foundation is the shared base of every colour layer.  Without it, even a
+  // good lip or eye mask reads as isolated paint on uneven webcam lighting.
+  applyFoundation(ctx, points, palette[2], a);
+  softlyFillPolygon(ctx, points, FACE_OVAL, palette[2], a * 0.22, 20, "soft-light");
+  const { cheekLeft, cheekRight, cheekDistance, leftSide, rightSide, bridge, tip, noseWidth } = faceMakeupAnchors(ctx, points);
+  const turn = faceTurnFactor(ctx, points);
+  const blushPlan = look === "daily"
+    ? {
+        // 斜向提拉：从颧骨外侧向太阳穴带开，适合通勤消肿感。
+        left: { x: cheekLeft.x - cheekDistance * 0.04, y: cheekLeft.y - cheekDistance * 0.15 },
+        right: { x: cheekRight.x + cheekDistance * 0.04, y: cheekRight.y - cheekDistance * 0.15 },
+        radiusX: cheekDistance * 0.88, radiusY: cheekDistance * 0.36, leftRotation: -0.34, rightRotation: 0.34,
+      }
+    : look === "smoky"
+      ? {
+          // 眼下氛围腮红：更靠近面中和下眼睑，呼应烟熏眼妆。
+          left: { x: cheekLeft.x + cheekDistance * 0.28, y: cheekLeft.y - cheekDistance * 0.44 },
+          right: { x: cheekRight.x - cheekDistance * 0.28, y: cheekRight.y - cheekDistance * 0.44 },
+          radiusX: cheekDistance * 0.7, radiusY: cheekDistance * 0.62, leftRotation: 0.06, rightRotation: -0.06,
+        }
+      : {
+          // 团状收缩腮红：面积更集中，配合修容令面中视觉更短。
+          left: { x: cheekLeft.x + cheekDistance * 0.15, y: cheekLeft.y + cheekDistance * 0.1 },
+          right: { x: cheekRight.x - cheekDistance * 0.15, y: cheekRight.y + cheekDistance * 0.1 },
+          radiusX: cheekDistance * 0.55, radiusY: cheekDistance * 0.56, leftRotation: 0, rightRotation: 0,
+        };
+  const { left: blushLeft, right: blushRight, radiusX: blushRadiusX, radiusY: blushRadiusY, leftRotation, rightRotation } = blushPlan;
+  // Face makeup is applied before detail makeup.  This is the important order:
+  // the viewer should first perceive healthy skin, sculpting and lip colour,
+  // not a black line around each eye.
+  const blushStrength = look === "smoky" ? 0.98 : look === "contour" ? 0.84 : 1.04;
+  softlyFillEllipse(ctx, blushLeft, blushRadiusX, blushRadiusY, effectProfile.cheek, a * blushStrength, 15, "soft-light", leftRotation);
+  softlyFillEllipse(ctx, blushRight, blushRadiusX, blushRadiusY, effectProfile.cheek, a * blushStrength, 15, "soft-light", rightRotation);
+  // A smaller warm core stops blush reading as a flat coloured patch while
+  // preserving the webcam's natural skin texture.
+  softlyFillEllipse(ctx, blushLeft, blushRadiusX * 0.56, blushRadiusY * 0.52, palette[0], a * 0.34, 10, "soft-light", leftRotation);
+  softlyFillEllipse(ctx, blushRight, blushRadiusX * 0.56, blushRadiusY * 0.52, palette[0], a * 0.34, 10, "soft-light", rightRotation);
+
+  // Side sculpting follows the actual left/right landmark planes.  This fixes
+  // the old "floating side shadow" when the head is shifted or slightly turned.
+  const leftContourCenter = { x: leftSide.x, y: leftSide.y + blushRadiusY * 0.12 };
+  const rightContourCenter = { x: rightSide.x, y: rightSide.y + blushRadiusY * 0.12 };
+  const contourStrength = look === "contour" ? 0.58 : 0.34;
+  softlyFillEllipse(ctx, leftContourCenter, cheekDistance * 0.22, cheekDistance * 0.7, effectProfile.contour, a * contourStrength * turn, 20, "multiply", -0.34);
+  softlyFillEllipse(ctx, rightContourCenter, cheekDistance * 0.22, cheekDistance * 0.7, effectProfile.contour, a * contourStrength * turn, 20, "multiply", 0.34);
+  // Highlight sits above blush and contour as a narrow light reflection, not
+  // a white painted stripe.  Screen makes it respond to the user's own light.
+  const highlightLift = blushRadiusY * 0.72;
+  softlyFillEllipse(ctx, { x: blushLeft.x - cheekDistance * 0.08, y: blushLeft.y - highlightLift }, cheekDistance * 0.48, cheekDistance * 0.19, palette[2], a * 0.68, 11, "screen", leftRotation);
+  softlyFillEllipse(ctx, { x: blushRight.x + cheekDistance * 0.08, y: blushRight.y - highlightLift }, cheekDistance * 0.48, cheekDistance * 0.19, palette[2], a * 0.68, 11, "screen", rightRotation);
+  // Nose contour uses bridge + tip landmarks rather than screen coordinates,
+  // so its two soft shadows travel with the nose.  The centre highlight is
+  // deliberately narrower and brighter, like a liquid rather than a stripe.
+  const bridgeLength = Math.max(16, Math.hypot(tip.x - bridge.x, tip.y - bridge.y));
+  const noseAngle = Math.atan2(tip.y - bridge.y, tip.x - bridge.x) - Math.PI / 2;
+  const noseMid = { x: (bridge.x + tip.x) / 2, y: (bridge.y + tip.y) / 2 };
+  const noseSculpt = look === "contour" ? 0.78 : 0.55;
+  softlyFillEllipse(ctx, { x: noseMid.x - noseWidth * 0.36, y: noseMid.y }, noseWidth * 0.16, bridgeLength * 0.58, effectProfile.contour, a * noseSculpt * turn, 9, "multiply", noseAngle);
+  softlyFillEllipse(ctx, { x: noseMid.x + noseWidth * 0.36, y: noseMid.y }, noseWidth * 0.16, bridgeLength * 0.58, effectProfile.contour, a * noseSculpt * turn, 9, "multiply", noseAngle);
+  softlyFillEllipse(ctx, { x: noseMid.x, y: noseMid.y - bridgeLength * 0.12 }, noseWidth * 0.11, bridgeLength * 0.46, palette[2], a * 0.62 * turn, 8, "screen", noseAngle);
+  softlyFillEllipse(ctx, tip, noseWidth * 0.36, noseWidth * 0.16, palette[2], a * 0.56 * turn, 7, "screen");
+  // Two translucent lip passes retain the lip texture while making the colour
+  // strong enough to be visible on a typical webcam.
+  const lips = LIPS.map((id) => toCanvasPoint(points[id], ctx.canvas));
+  // A restrained lip-liner expansion gives a more defined cupid's bow and
+  // fuller visual lip shape without distorting the user's face image.
+  softlyFillCoordinates(ctx, scaleCoordinates(lips, 1.055, 1.14), effectProfile.lip, a * 0.32, 3.5, "soft-light");
+  softlyFillPolygon(ctx, points, LIPS, effectProfile.lip, a * (look === "smoky" ? 1.18 : 1.08), 4, "soft-light");
+  softlyFillPolygon(ctx, points, LIPS, effectProfile.lip, a * 0.46, 2.5, "source-over");
   if (look !== "contour") {
     // The blend modes intentionally mirror the compositing vocabulary used by
     // production effect editors: shadow darkens underlying skin while highlight
@@ -412,28 +785,49 @@ function renderLook(
     // Three very soft passes mimic the subtle, camera-friendly layering used
     // by short-video makeup effects: diffuse base, darker outer corner, and
     // a tiny centre highlight. There are deliberately no hard outlines.
-    const baseBlend = look === "smoky" ? "source-over" : "soft-light";
-    const [leftBaseAlpha, rightBaseAlpha] = balancedAlpha(a * effectProfile.eyeOpacity, leftLid, rightLid);
+    const baseBlend = "soft-light";
+    const [leftBaseAlpha, rightBaseAlpha] = balancedAlpha(eyeA * effectProfile.eyeOpacity * (look === "smoky" ? 1.35 : 1.08), leftLid, rightLid);
     softlyFillCoordinates(ctx, leftLid, effectProfile.eyeBase, leftBaseAlpha, 5, baseBlend);
     softlyFillCoordinates(ctx, rightLid, effectProfile.eyeBase, rightBaseAlpha, 5, baseBlend);
-    const outerA = look === "smoky" ? a * 1.05 : a * 0.72;
+    const outerA = look === "smoky" ? eyeA * 1.35 : eyeA * 0.82;
     const [leftOuterAlpha, rightOuterAlpha] = balancedAlpha(outerA * effectProfile.eyeOpacity, leftOuterLid, rightOuterLid);
     softlyFillCoordinates(ctx, leftOuterLid, effectProfile.eyeOuter, leftOuterAlpha, 6, "multiply");
     softlyFillCoordinates(ctx, rightOuterLid, effectProfile.eyeOuter, rightOuterAlpha, 6, "multiply");
-    const [leftLowerAlpha, rightLowerAlpha] = balancedAlpha(a * effectProfile.eyeOpacity * 0.2, leftLower, rightLower);
+    // A second pigment pass gives a smoky look its opaque-to-translucent
+    // powder gradient instead of a single grey overlay.
+    const [leftOuterDepth, rightOuterDepth] = balancedAlpha(eyeA * (look === "smoky" ? 0.46 : 0.2), leftOuterLid, rightOuterLid);
+    softlyFillCoordinates(ctx, leftOuterLid, effectProfile.eyeOuter, leftOuterDepth, 7, "soft-light");
+    softlyFillCoordinates(ctx, rightOuterLid, effectProfile.eyeOuter, rightOuterDepth, 7, "soft-light");
+    const [leftLowerAlpha, rightLowerAlpha] = balancedAlpha(eyeA * effectProfile.eyeOpacity * (look === "smoky" ? 0.48 : 0.28), leftLower, rightLower);
     softlyFillCoordinates(ctx, leftLower, effectProfile.lowerEye, leftLowerAlpha, 3, "multiply");
     softlyFillCoordinates(ctx, rightLower, effectProfile.lowerEye, rightLowerAlpha, 3, "multiply");
-    const leftCheek = LEFT_CHEEK.map((id) => toCanvasPoint(points[id], ctx.canvas));
-    const rightCheek = RIGHT_CHEEK.map((id) => toCanvasPoint(points[id], ctx.canvas));
-    const [leftCheekAlpha, rightCheekAlpha] = balancedAlpha(a * effectProfile.cheekOpacity, leftCheek, rightCheek);
-    softlyFillPolygon(ctx, points, LEFT_CHEEK, effectProfile.cheek, leftCheekAlpha, 18, "soft-light");
-    softlyFillPolygon(ctx, points, RIGHT_CHEEK, effectProfile.cheek, rightCheekAlpha, 18, "soft-light");
-    softlyFillPolygon(ctx, points, LIPS, effectProfile.lip, a * effectProfile.lipOpacity, 5, "soft-light");
+    // Eyeliner is a skin-only band placed just above the lash curve.  It has
+    // pigment density but no freehand stroke, so it avoids drawing over iris
+    // reflections and remains usable with glasses.
+    const [leftLinerAlpha, rightLinerAlpha] = balancedAlpha(eyeA * (look === "smoky" ? 0.94 : 0.66), leftLiner, rightLiner);
+    softlyFillCoordinates(ctx, leftLiner, effectProfile.eyeOuter, leftLinerAlpha, 2.25, "multiply");
+    softlyFillCoordinates(ctx, rightLiner, effectProfile.eyeOuter, rightLinerAlpha, 2.25, "multiply");
+    // Keep both eyes controlled by the skin-only liner band. A procedural
+    // triangular wing is too sensitive to one-frame landmark jitter and was
+    // responsible for the visibly different left/right block in the preview.
+    drawBrows(ctx, points, LEFT_BROW, effectProfile.eyeOuter, eyeA * 0.46);
+    drawBrows(ctx, points, RIGHT_BROW, effectProfile.eyeOuter, eyeA * 0.46);
+    drawContacts(ctx, points, LEFT_IRIS, palette[0], eyeA * (look === "smoky" ? 0.72 : 0.56));
+    drawContacts(ctx, points, RIGHT_IRIS, palette[0], eyeA * (look === "smoky" ? 0.72 : 0.56));
   } else {
-    softlyFillPolygon(ctx, points, LEFT_CONTOUR, effectProfile.contour, a * 0.58, 17, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_CONTOUR, effectProfile.contour, a * 0.58, 17, "multiply");
-    softlyFillPolygon(ctx, points, LEFT_JAW, effectProfile.contour, a * 0.34, 18, "multiply");
-    softlyFillPolygon(ctx, points, RIGHT_JAW, effectProfile.contour, a * 0.34, 18, "multiply");
+    // Contour look still carries the complete base makeup; it just prioritizes
+    // face sculpting instead of the stronger eye emphasis of smoky makeup.
+    softlyFillCoordinates(ctx, leftLid, effectProfile.eyeBase, a * 0.44, 5, "soft-light");
+    softlyFillCoordinates(ctx, rightLid, effectProfile.eyeBase, a * 0.44, 5, "soft-light");
+    softlyFillCoordinates(ctx, leftLiner, effectProfile.eyeOuter, a * 0.42, 1.8, "multiply");
+    softlyFillCoordinates(ctx, rightLiner, effectProfile.eyeOuter, a * 0.42, 1.8, "multiply");
+    drawBrows(ctx, points, LEFT_BROW, effectProfile.eyeOuter, a * 0.38);
+    drawBrows(ctx, points, RIGHT_BROW, effectProfile.eyeOuter, a * 0.38);
+    drawContacts(ctx, points, LEFT_IRIS, palette[0], a * 0.44);
+    drawContacts(ctx, points, RIGHT_IRIS, palette[0], a * 0.44);
+    // The shared face-makeup layer above carries blush, lip colour, sculpting
+    // and highlight for this look too; contour simply keeps its eye makeup
+    // intentionally light.
   }
 }
 
@@ -446,6 +840,7 @@ export default function FaceMeshCanvas({
   look,
   teachingZone,
   mode,
+  effectsEnabled = true,
   showMesh = false,
   brushDirection,
   landmarksRef,
@@ -461,12 +856,13 @@ export default function FaceMeshCanvas({
     look,
     teachingZone,
     mode,
+    effectsEnabled,
     showMesh,
     brushDirection,
   });
   useEffect(() => {
-    latest.current = { palette, effectProfile, intensity, look, teachingZone, mode, showMesh, brushDirection };
-  }, [palette, effectProfile, intensity, look, teachingZone, mode, showMesh, brushDirection]);
+    latest.current = { palette, effectProfile, intensity, look, teachingZone, mode, effectsEnabled, showMesh, brushDirection };
+  }, [palette, effectProfile, intensity, look, teachingZone, mode, effectsEnabled, showMesh, brushDirection]);
 
   useEffect(() => {
     if (!enabled || landmarksRef) return;
@@ -539,7 +935,7 @@ export default function FaceMeshCanvas({
               onGaze?.(gaze);
             }
             if (s.showMesh) drawMesh(ctx, points);
-            renderLook(ctx, points, s.palette, s.effectProfile, s.intensity, s.look, s.mode, s.teachingZone);
+            if (s.effectsEnabled) renderLook(ctx, points, s.palette, s.effectProfile, s.intensity, s.look, s.mode, s.teachingZone);
             if(s.brushDirection) drawBrushDirection(ctx,points,s.teachingZone);
           } else {
             previousPoints = null;
@@ -592,7 +988,7 @@ export default function FaceMeshCanvas({
             onGaze?.(gaze);
           }
           if (s.showMesh) drawMesh(ctx, points);
-          renderLook(ctx, points, s.palette, s.effectProfile, s.intensity, s.look, s.mode, s.teachingZone);
+          if (s.effectsEnabled) renderLook(ctx, points, s.palette, s.effectProfile, s.intensity, s.look, s.mode, s.teachingZone);
           if (s.brushDirection) drawBrushDirection(ctx, points, s.teachingZone);
         }
       }

@@ -18,14 +18,30 @@ import CloudMakeupTransfer from "./CloudMakeupTransfer";
 import {
   coachInstructions,
   knowledgeByZone,
+  prepGuide,
   realtimeCoachTools,
   searchTeachingKnowledge,
 } from "./coachKnowledge";
 import type { CoachSnapshot, FocusMode } from "./coachKnowledge";
 
 type TemplateKey = "daily" | "smoky" | "contour";
-type Stage = "upload" | "design" | "precision" | "cloud" | "tryon" | "coach" | "finish";
+type Stage = "intro" | "upload" | "design" | "precision" | "cloud" | "tryon-loading" | "tryon" | "coach-loading" | "coach" | "finish";
 type VoiceStatus = "idle" | "connecting" | "listening" | "error";
+type PetDialoguePlacement = {
+  vertical: "above" | "below";
+  horizontal: "start" | "end";
+};
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+};
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 type Step = {
   title: string;
   short: string;
@@ -42,6 +58,13 @@ const templates: Record<
     area: "眼妆",
     tags: ["低饱和", "眼尾上提", "适合新手"],
     steps: [
+      {
+        title: "妆前与底妆",
+        short: "保湿、校色、薄铺底妆",
+        instruction: "先完成保湿和局部校色；粉底从面中薄铺到脸缘，再在需要处少量遮瑕并轻压定妆。",
+        tip: "先薄后叠，眼下和鼻翼只用剩余粉，避免把底妆堆厚。",
+        zone: "prep",
+      },
       {
         title: "眼窝打底",
         short: "浅色铺开",
@@ -78,6 +101,13 @@ const templates: Record<
     tags: ["横向延伸", "深浅三层", "氛围感"],
     steps: [
       {
+        title: "妆前与底妆",
+        short: "保湿、校色、薄铺底妆",
+        instruction: "先完成保湿和局部校色；粉底从面中薄铺到脸缘，再在需要处少量遮瑕并轻压定妆。",
+        tip: "烟熏眼妆前先把眼下底妆压牢，后续落粉才更容易清理。",
+        zone: "prep",
+      },
+      {
         title: "灰棕打底",
         short: "控制上界",
         instruction: "从眼尾向眼中平铺灰棕色，上界不超过眼窝。",
@@ -113,6 +143,13 @@ const templates: Record<
     tags: ["颧骨下方", "下颌收边", "自然光影"],
     steps: [
       {
+        title: "妆前与底妆",
+        short: "保湿、校色、薄铺底妆",
+        instruction: "先完成保湿和局部校色；粉底从面中薄铺到脸缘，再在需要处少量遮瑕并轻压定妆。",
+        tip: "底妆要留出真实肤色，修容叠上去才不会显脏。",
+        zone: "prep",
+      },
+      {
         title: "找到颧骨",
         short: "先定位",
         instruction: "从耳前向鼻翼方向比出参考线，终点停在瞳孔外侧。",
@@ -145,6 +182,12 @@ const templates: Record<
 };
 
 const defaultPalette = ["#b97872", "#6f4543", "#e7c0ad"];
+const sceneMoments = [
+  { index: "01", title: "赴约之前", label: "镜前复刻", image: "scene-east-asian-bangs-cutout.png", intent: "replicate", copy: "你把收藏很久的氛围带到镜子前。接下来，只需跟上几笔，让今晚的光落在你自己的轮廓上。" },
+  { index: "02", title: "早晨十分钟", label: "日常出门", image: "scene-wavy-caucasian-cutout.png", intent: "everyday", copy: "你不必重新开始一天。用手边的几样东西，留下刚刚好的精神感，然后从容出门。" },
+  { index: "03", title: "卡在一笔", label: "即时追问", image: "scene-black-woman-cutout.png", intent: "learn", copy: "你可以在最犹豫的一笔停下来。问清刷子、方向与用量，再让这一笔变得笃定。" },
+  { index: "04", title: "留给自己", label: "自然化调整", image: "scene-latina-cutout.png", intent: "everyday", copy: "你保留心动的部分，也留出自己的呼吸。把灵感调成真正适合你日常的一版。" },
+] as const;
 const defaultEffectProfile: MakeupEffectProfile = {
   eyeBase: defaultPalette[0], eyeOuter: defaultPalette[1], lowerEye: defaultPalette[1],
   cheek: defaultPalette[0], lip: defaultPalette[1], contour: defaultPalette[1],
@@ -195,18 +238,6 @@ function analyzeReferenceImage(file: File): Promise<ReferenceAnalysis> {
     img.src = url;
   });
 }
-function shift(hex: string, amount: number) {
-  const n = parseInt(hex.slice(1), 16);
-  const f = (v: number) =>
-    Math.max(0, Math.min(255, Math.round(v + amount * 255)));
-  return `#${f(n >> 16)
-    .toString(16)
-    .padStart(2, "0")}${f((n >> 8) & 255)
-    .toString(16)
-    .padStart(2, "0")}${f(n & 255)
-    .toString(16)
-    .padStart(2, "0")}`;
-}
 function statusCopy(status: MeshStatus) {
   return {
     idle: "等待启动",
@@ -227,6 +258,7 @@ function qualityCopy(quality: TrackingQuality) {
 }
 function directionCopy(zone: string) {
   return {
+    prep: "从面中向外薄铺，鼻翼和眼下只用剩余粉",
     base: "从睫毛根部向上轻扫",
     outer: "从外眼角向外晕染",
     lower: "沿下眼尾向内连接",
@@ -239,15 +271,28 @@ function directionCopy(zone: string) {
   }[zone] ?? "跟随镜面箭头";
 }
 
+function inferLookName(text: string, key: TemplateKey) {
+  const compact = text.replace(/[，,。.!！?？]/g, "").trim();
+  if (/烟熏|欧美|清冷/.test(compact)) return "清冷灰棕小烟熏";
+  if (/修容|立体|轮廓/.test(compact)) return "自然立体轮廓妆";
+  if (/桃|甜|氛围|约会/.test(compact)) return "蜜桃氛围感妆";
+  if (compact && compact.length <= 16 && !/低饱和|干净|日常通勤/.test(compact)) return `${compact}妆`;
+  return templates[key].name;
+}
+
 export default function MirrorMateDemo() {
-  const [stage, setStage] = useState<Stage>("upload"),
+  const [stage, setStage] = useState<Stage>("intro"),
+    [sceneDetail, setSceneDetail] = useState<number | null>(null),
     [reference, setReference] = useState<string | null>(null),
     [referenceFile, setReferenceFile] = useState<File | null>(null),
     [palette, setPalette] = useState(defaultPalette),
     [effectProfile, setEffectProfile] = useState<MakeupEffectProfile>(defaultEffectProfile),
     [templateKey, setTemplateKey] = useState<TemplateKey>("daily"),
+    [lookName, setLookName] = useState(""),
+    [lookNameTouched, setLookNameTouched] = useState(false),
     [prompt, setPrompt] = useState("低饱和、干净、日常通勤"),
     [promptDirty, setPromptDirty] = useState(false),
+    [intent, setIntent] = useState<"learn" | "replicate" | "everyday">("learn"),
     [intensity, setIntensity] = useState(55),
     [referenceAnalysis, setReferenceAnalysis] =
       useState<ReferenceAnalysis | null>(null),
@@ -261,8 +306,15 @@ export default function MirrorMateDemo() {
     [showMesh, setShowMesh] = useState(false),
     [rescue, setRescue] = useState(false),
     [focusMode, setFocusMode] = useState<FocusMode>("full"),
+    [skinProfile, setSkinProfile] = useState<CoachSnapshot["skinProfile"]>("unknown"),
+    [prepChecked, setPrepChecked] = useState(false),
     [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle"),
-    [voiceTranscript, setVoiceTranscript] = useState(""),
+    [agentDraft, setAgentDraft] = useState(""),
+    [chatHistory, setChatHistory] = useState<string[]>([]),
+    [petOpen, setPetOpen] = useState(false),
+    [petPosition, setPetPosition] = useState<{ left: number; top: number } | null>(null),
+    [petDialoguePlacement, setPetDialoguePlacement] = useState<PetDialoguePlacement>({ vertical: "above", horizontal: "end" }),
+    [previewEffectsVisible, setPreviewEffectsVisible] = useState(true),
     [events, setEvents] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null),
     guideVideoRef = useRef<HTMLVideoElement>(null),
@@ -274,13 +326,34 @@ export default function MirrorMateDemo() {
     realtimeChannelRef = useRef<RTCDataChannel | null>(null),
     realtimeAudioRef = useRef<HTMLAudioElement | null>(null),
     realtimeActiveRef = useRef(false),
+    realtimeGreetingSentRef = useRef(false),
+    welcomeShownRef = useRef(false),
+    petDragRef = useRef({ startX: 0, startY: 0, left: 0, top: 0, didDrag: false }),
+    petToggleRef = useRef<HTMLButtonElement>(null),
     coachSnapshotRef = useRef<CoachSnapshot | null>(null);
   const t = templates[templateKey],
+    activeLookName = lookName.trim() || t.name,
     current = t.steps[step],
-    progress = Math.round(((step + 1) / t.steps.length) * 100);
+    progress = Math.round(((step + 1) / t.steps.length) * 100),
+    stepGroups = [
+      { title: "妆前与底妆", note: "保湿、校色、分区上妆与定妆", indexes: [0] },
+      { title: "重点上妆", note: "从大范围到关键落点", indexes: [1, 2] },
+      { title: "收尾与检查", note: "小范围晕染后再看整体", indexes: [3, 4] },
+    ].map((group) => ({
+      ...group,
+      steps: group.indexes
+        .filter((index) => t.steps[index])
+        .map((index) => ({ ...t.steps[index], index })),
+    }));
   const coachSnapshot = useMemo<CoachSnapshot>(
     () => ({
-      lookName: t.name,
+      lookName: activeLookName,
+      userIntent: intent === "learn" ? "学会这个妆容" : intent === "replicate" ? "尽量复刻参考妆" : "调整成自然日常版",
+      inspiration: prompt.trim() || "用户暂未补充文字偏好",
+      referenceSummary: referenceAnalysis
+        ? `${referenceAnalysis.temperature}、${referenceAnalysis.saturation}、${referenceAnalysis.contrast}；建议浓度 ${referenceAnalysis.suggestedIntensity}%`
+        : reference ? "用户已上传参考图，尚未完成风格摘要" : "用户未上传参考图",
+      intensity,
       stepIndex: step,
       totalSteps: t.steps.length,
       stepTitle: current.title,
@@ -291,9 +364,11 @@ export default function MirrorMateDemo() {
       tracking: qualityCopy(trackingQuality),
       meshStatus: statusCopy(meshStatus),
       focusMode,
+      skinProfile,
+      prepChecked,
       knowledge: knowledgeByZone[current.zone] ?? knowledgeByZone.base,
     }),
-    [current, focusMode, meshStatus, step, t.name, t.steps.length, trackingQuality],
+    [activeLookName, current, focusMode, intensity, intent, meshStatus, prepChecked, prompt, reference, referenceAnalysis, skinProfile, step, t.steps.length, trackingQuality],
   );
   const paletteStyle = useMemo(
     () => ({ "--makeup": palette[1] }) as React.CSSProperties,
@@ -312,11 +387,30 @@ export default function MirrorMateDemo() {
     }
   }, [coachSnapshot]);
   useEffect(() => {
+    if (stage !== "upload" || welcomeShownRef.current) return;
+    welcomeShownRef.current = true;
+    updateVoiceTranscript("欢迎来到 MirrorMate。上传一张心动的妆容图，或直接告诉我今天想练什么；从选妆到收尾，我都会在这里陪你。 ");
+  }, [stage]);
+  useEffect(() => {
     if (videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
       videoRef.current.play().catch(() => {});
     }
   }, [stage, camera]);
+  useEffect(() => {
+    const keepPetVisible = () => {
+      setPetPosition((position) => {
+        if (!position) return position;
+        return {
+          left: Math.max(8, Math.min(window.innerWidth - 96, position.left)),
+          top: Math.max(8, Math.min(window.innerHeight - 112, position.top)),
+        };
+      });
+      if (petOpen) requestAnimationFrame(placePetDialogue);
+    };
+    window.addEventListener("resize", keepPetVisible);
+    return () => window.removeEventListener("resize", keepPetVisible);
+  }, [petOpen]);
   useEffect(
     () => () => {
       streamRef.current?.getTracks().forEach((x) => x.stop());
@@ -338,6 +432,7 @@ export default function MirrorMateDemo() {
     setPalette(analysis.palette);
     setEffectProfile(analysis.effectProfile);
     setTemplateKey(analysis.suggestedTemplate);
+    if (!lookNameTouched) setLookName(inferLookName(prompt, analysis.suggestedTemplate));
     setIntensity(analysis.suggestedIntensity);
     setPrompt(
       `${analysis.temperature}、${analysis.saturation}、${analysis.contrast}`,
@@ -351,7 +446,6 @@ export default function MirrorMateDemo() {
           ? "已定位参考脸的眼影、腮红与唇色，并将其同步到实时妆效"
           : `已聚类三组妆效色：${analysis.temperature} / ${analysis.contrast}`,
     ]);
-    setStage("design");
   }
   function interpretStyle(text = prompt) {
     const p = text.toLowerCase();
@@ -362,6 +456,7 @@ export default function MirrorMateDemo() {
           ? "smoky"
           : "daily";
     setTemplateKey(key);
+    if (!lookNameTouched) setLookName(inferLookName(text, key));
     if (!reference) {
       const nextPalette: [string, string, string] = p.includes("桃") || p.includes("甜")
         ? ["#d88991", "#873e4d", "#f1c1b3"]
@@ -379,6 +474,13 @@ export default function MirrorMateDemo() {
   async function startTryOn() {
     if (promptDirty) interpretStyle();
     setCameraError("");
+    setStage("tryon-loading");
+    const loadingStartedAt = Date.now();
+    const finishLoading = async () => {
+      const remaining = Math.max(0, 1450 - (Date.now() - loadingStartedAt));
+      if (remaining) await new Promise((resolve) => window.setTimeout(resolve, remaining));
+      setStage("tryon");
+    };
     try {
       const s = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -390,19 +492,20 @@ export default function MirrorMateDemo() {
       });
       streamRef.current = s;
       setCamera(true);
-      setStage("tryon");
       setEvents((v) => [...v, "摄像头已开启：开始本地实时定位"]);
+      await finishLoading();
     } catch {
       setCamera(false);
-      setStage("tryon");
       setMeshStatus("fallback");
       setCameraError("摄像头未授权，示例脸仍可演示妆效与教学流程。");
+      await finishLoading();
     }
   }
   function acceptLook() {
     setStep(0);
-    setStage("coach");
-    setEvents((v) => [...v, `已确认妆效：${t.name}，浓度 ${intensity}%`]);
+    setStage("coach-loading");
+    setEvents((v) => [...v, `已确认妆效：${activeLookName}，浓度 ${intensity}%`]);
+    window.setTimeout(() => setStage("coach"), 1450);
   }
   function speakText(text: string) {
     if (!("speechSynthesis" in window)) return;
@@ -411,11 +514,90 @@ export default function MirrorMateDemo() {
     u.lang = "zh-CN";
     speechSynthesis.speak(u);
   }
+  function startPromptDictation() {
+    const browser = window as typeof window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
+    if (!Recognition) {
+      setEvents((items) => [...items, "当前浏览器不支持语音输入，请直接键入想法"]);
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = "zh-CN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const spoken = event.results[0]?.[0]?.transcript?.trim();
+      if (spoken) {
+        setPrompt(spoken);
+        setPromptDirty(true);
+      }
+    };
+    recognition.start();
+  }
   function speak() {
     speakText(`${current.title}。${current.instruction}`);
   }
+  function updateVoiceTranscript(message: string) {
+    setChatHistory((items) => items.at(-1) === message ? items : [...items, message].slice(-48));
+  }
+  function displayChatMessage(message: string) {
+    if (/^(你说|你问)：?/.test(message)) return message.replace(/^(你说|你问)：?\s*[“"]?/, "").replace(/[”"]$/, "");
+    return message.replace(/^MirrorMate：\s*/, "");
+  }
+  function placePetDialogue() {
+    const rect = petToggleRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const dialogueWidth = Math.min(352, window.innerWidth - 24);
+    const targetHeight = Math.min(430, window.innerHeight - 24);
+    setPetDialoguePlacement({
+      vertical: rect.top >= targetHeight + 12 || window.innerHeight - rect.bottom < targetHeight + 12 ? "above" : "below",
+      horizontal: rect.left + dialogueWidth + 8 <= window.innerWidth ? "start" : "end",
+    });
+  }
+  function startPetDrag(event: React.PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return;
+    const shell = event.currentTarget.parentElement;
+    if (!shell) return;
+    event.preventDefault();
+    const rect = shell.getBoundingClientRect();
+    petDragRef.current = { startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top, didDrag: false };
+    const move = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== event.pointerId) return;
+      const drag = petDragRef.current;
+      const dx = moveEvent.clientX - drag.startX;
+      const dy = moveEvent.clientY - drag.startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) drag.didDrag = true;
+      setPetPosition({
+        left: Math.max(8, Math.min(window.innerWidth - 100, drag.left + dx)),
+        top: Math.max(8, Math.min(window.innerHeight - 112, drag.top + dy)),
+      });
+      if (petOpen) requestAnimationFrame(placePetDialogue);
+    };
+    const end = (endEvent: PointerEvent) => {
+      if (endEvent.pointerId !== event.pointerId) return;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      if (petOpen) requestAnimationFrame(placePetDialogue);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }
+  function togglePet() {
+    if (petDragRef.current.didDrag) {
+      petDragRef.current.didDrag = false;
+      return;
+    }
+    if (!petOpen) placePetDialogue();
+    setPetOpen((open) => !open);
+  }
   function stopVoiceCoach() {
     realtimeActiveRef.current = false;
+    realtimeGreetingSentRef.current = false;
     realtimeChannelRef.current?.close();
     realtimeChannelRef.current = null;
     realtimePcRef.current?.close();
@@ -428,6 +610,94 @@ export default function MirrorMateDemo() {
       realtimeAudioRef.current = null;
     }
     setVoiceStatus("idle");
+  }
+  function handleVoiceCommand(transcript: string) {
+    const cleaned = transcript.replace(/\s/g, "");
+    const say = (text: string) => {
+      setChatHistory((items) => [...items, `MirrorMate：${text}`].slice(-48));
+      if (!realtimeActiveRef.current) speakText(text);
+    };
+    updateVoiceTranscript(`你说：“${transcript}”`);
+    if (/上一步|返回/.test(cleaned)) {
+      if (step > 0) setStep(step - 1);
+      say(step > 0 ? "好的，回到上一步。" : "这已经是第一步。 ");
+      return;
+    }
+    if (/下一步|继续|完成/.test(cleaned)) {
+      if (step < t.steps.length - 1) {
+        next();
+        say(`好的，下一步是${t.steps[step + 1].title}。${t.steps[step + 1].instruction}`);
+      } else {
+        say("你已经完成全部步骤，可以点击完成练习查看复盘。 ");
+      }
+      return;
+    }
+    if (/慢一点|放慢/.test(cleaned)) {
+      say(`${current.title}。${current.instruction}。我再慢一点说：${directionCopy(current.zone)}。`);
+      return;
+    }
+    if (/放大|看局部|局部视图/.test(cleaned)) {
+      setFocusMode("detail");
+      say("已放大当前教学局部，右侧仍保留整脸目标方便对照。");
+      return;
+    }
+    if (/整脸|缩小|退回全脸|退回整脸/.test(cleaned)) {
+      setFocusMode("full");
+      say("已退回整脸视图。");
+      return;
+    }
+    if (/再说一遍|重复|没听清/.test(cleaned)) {
+      if (!realtimeActiveRef.current) speak();
+      return;
+    }
+    if (/救一下|出界|画错/.test(cleaned)) {
+      setRescue(true);
+      setEvents((v) => [...v, "语音求助：需要补救"]);
+      say("我来帮你补救。先停下，不要继续叠色，然后按补救卡完成一个小动作。 ");
+      return;
+    }
+    if (/肤质|干皮|油皮|敏感|妆前|保湿|清洁|卡粉|起皮/.test(cleaned)) {
+      const profile = /干皮|起皮/.test(cleaned) ? "dry" : /油皮/.test(cleaned) ? "oily" : /敏感/.test(cleaned) ? "sensitive" : skinProfile;
+      if (profile === "unknown") {
+        say("你现在更接近偏干、偏油、敏感，还是比较稳定？我会据此调整妆前提醒，不替你诊断肤质。");
+      } else {
+        say(prepGuide[profile]);
+      }
+      return;
+    }
+    if (/什么刷|什么工具|怎么画|怎么晕|取多少|什么时候停|位置/.test(cleaned)) {
+      const knowledge = knowledgeByZone[current.zone] ?? knowledgeByZone.base;
+      say(`当前建议用${knowledge.tool}。${knowledge.amount}。${knowledge.technique}。${knowledge.stopCondition}`);
+      return;
+    }
+    say(`我听到你说${transcript}。你可以说下一步、慢一点、再说一遍或救一下。`);
+  }
+  function sendAgentMessage() {
+    const question = agentDraft.trim();
+    if (!question) return;
+    setAgentDraft("");
+    setEvents((items) => [...items, `文字提问：${question}`]);
+    const channel = realtimeChannelRef.current;
+    if (realtimeActiveRef.current && channel?.readyState === "open") {
+      updateVoiceTranscript(`你问：“${question}”`);
+      channel.send(JSON.stringify({
+        event_id: `mirrormate_text_${Date.now()}`,
+        type: "conversation.item.create",
+        item: { type: "message", role: "user", content: [{ type: "input_text", text: question }] },
+      }));
+      channel.send(JSON.stringify({ event_id: `mirrormate_text_response_${Date.now()}`, type: "response.create" }));
+      return;
+    }
+    handleVoiceCommand(question);
+  }
+  function requestRealtimeWelcome(channel: RTCDataChannel) {
+    if (realtimeGreetingSentRef.current || channel.readyState !== "open") return;
+    realtimeGreetingSentRef.current = true;
+    channel.send(JSON.stringify({
+      event_id: `mirrormate_welcome_${Date.now()}`,
+      type: "response.create",
+      response: { instructions: "请用一到两句自然、温暖的中文欢迎用户来到 MirrorMate。告诉她可以上传灵感图、描述想练的妆容，或直接说出顾虑；你会从选妆一直陪到完成。不要罗列功能、不要自我介绍成系统、不要用客服腔。" },
+    }));
   }
   function sendRealtimeSessionUpdate(
     channel: RTCDataChannel,
@@ -457,7 +727,7 @@ export default function MirrorMateDemo() {
       : { instructions: coachInstructions(snapshot) };
     channel.send(
       JSON.stringify({
-        event_id: `lumamuse_session_${Date.now()}`,
+        event_id: `mirrormate_session_${Date.now()}`,
         type: "session.update",
         session,
       }),
@@ -511,24 +781,23 @@ export default function MirrorMateDemo() {
     }
     const output = runRealtimeCoachTool(name, args);
     channel.send(JSON.stringify({
-      event_id: `lumamuse_tool_${Date.now()}`,
+      event_id: `mirrormate_tool_${Date.now()}`,
       type: "conversation.item.create",
       item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) },
     }));
     channel.send(JSON.stringify({
-      event_id: `lumamuse_response_${Date.now()}`,
+      event_id: `mirrormate_response_${Date.now()}`,
       type: "response.create",
     }));
   }
   async function startVoiceCoach() {
     if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
       setVoiceStatus("error");
-      setVoiceTranscript("当前浏览器不支持千问实时通话。请使用支持 WebRTC 的现代浏览器后重试。");
       return;
     }
     stopVoiceCoach();
     setVoiceStatus("connecting");
-    setVoiceTranscript("正在安全连接 LumaMuse 实时语音…");
+    updateVoiceTranscript("正在安全连接 MirrorMate 实时语音…");
     try {
       const voiceStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -576,22 +845,22 @@ export default function MirrorMateDemo() {
             if (!realtimeActiveRef.current) {
               realtimeActiveRef.current = true;
               setVoiceStatus("listening");
-              setVoiceTranscript("已接通千问实时陪练。你可以像和朋友聊天一样说话，也可以随时打断。");
+              updateVoiceTranscript("已接通 MirrorMate。它会从选妆陪你到完成，你可以随时开口或输入问题。 ");
+              requestRealtimeWelcome(eventChannel);
             }
           } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
-            setVoiceTranscript(`你说：“${data.transcript}”`);
+            updateVoiceTranscript(`你说：“${data.transcript}”`);
           } else if (
             data.type === "response.function_call_arguments.done" &&
             data.name &&
             data.call_id
           ) {
-            setVoiceTranscript("我看一下这一小步。");
+            updateVoiceTranscript("我看一下这一小步。");
             answerRealtimeTool(eventChannel, data.call_id, data.name, data.arguments);
           } else if (data.type === "response.audio_transcript.done" && data.transcript) {
-            setVoiceTranscript(`妆伴：${data.transcript}`);
+            updateVoiceTranscript(`MirrorMate：${data.transcript}`);
           } else if (data.type === "error") {
             setVoiceStatus("error");
-            setVoiceTranscript(`千问实时通话发生错误：${data.error?.message || "请点击重试。"}`);
           }
         };
       };
@@ -627,11 +896,9 @@ export default function MirrorMateDemo() {
       }
       const answerSdp = await response.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "实时语音暂时不可用";
+    } catch {
       stopVoiceCoach();
       setVoiceStatus("error");
-      setVoiceTranscript(`千问实时通话未接通：${message}。请检查麦克风权限后重试。`);
     }
   }
   function next() {
@@ -655,10 +922,13 @@ export default function MirrorMateDemo() {
     setPalette(defaultPalette);
     setEffectProfile(defaultEffectProfile);
     setTemplateKey("daily");
+    setLookName("");
+    setLookNameTouched(false);
     setPrompt("低饱和、干净、日常通勤");
     setPromptDirty(false);
     setIntensity(55);
     setReferenceAnalysis(null);
+    setIntent("learn");
     setCamera(false);
     setCameraError("");
     setMeshStatus("idle");
@@ -666,82 +936,113 @@ export default function MirrorMateDemo() {
     setGazeStatus("unknown");
     setShowMesh(false);
     setFocusMode("full");
-    setStage("upload");
+    setSkinProfile("unknown");
+    setPrepChecked(false);
+    setStage("intro");
     setStep(0);
     setRescue(false);
+    setAgentDraft("");
+    setChatHistory([]);
+    setPetOpen(false);
+    setPetPosition(null);
+    welcomeShownRef.current = false;
     setEvents([]);
   }
   return (
     <main className="app-shell" style={paletteStyle}>
-      <header className="appbar">
+      {stage !== "intro" && <header className="appbar">
+        <span className="mirrormate-wordmark" aria-label="MirrorMate 美妆陪练">MirrorMate<small>BEAUTY STUDY</small></span>
         <button className="brand-button" onClick={reset}>
-          <span>MM</span>
-          <b>LumaMuse 光感妆伴</b>
+          <b>MirrorMate<small>BEAUTY STUDY</small></b>
         </button>
         <div className="appbar-actions">
-          <span className="local-badge">
-            <i />
-            本地隐私模式
-          </span>
-          <span className="prototype-badge">本地落点辅助 · 云端静态预览</span>
+          <span className="local-badge">本地模式</span>
+          <span className="editorial-search">⌕</span>
         </div>
-      </header>
+      </header>}
+      {stage === "intro" && <>
+        <section className="opening-screen">
+          <div className="opening-aura" />
+          <div className="opening-editorial-copy" aria-hidden="true">
+            <p><span>BEAUTY,</span><span>IN FOCUS.</span></p>
+            <div><b>LOOK CLOSER.</b><small>A thoughtful mirror for every detail,<br />from borrowed inspiration to your own reflection.</small></div>
+          </div>
+          <img src="/editorial/mirrormate-opening-model.png" alt="MirrorMate 开屏人物" className="opening-portrait" />
+          <div className="opening-wordmark"><b>MirrorMate</b><small>BEAUTY STUDY</small></div>
+          <button className="opening-invite" onClick={() => setStage("upload")}>
+            <b>从灵感，到镜前</b><i>开始体验&nbsp;→</i>
+          </button>
+          <span className="opening-scroll-cue">SCROLL TO EXPLORE&nbsp; ↓</span>
+        </section>
+        <section className="opening-scenes" aria-label="MirrorMate 使用场景">
+          <div className="scene-intro"><p className="kicker">MIRRORMATE / MOMENTS</p><h2>每一次对镜，<br />都可以更笃定。</h2><span>悬停，读到属于这一刻的帮助。</span></div>
+          <div className="scene-grid">
+            {sceneMoments.map((scene, sceneIndex) => <button className={`scene-card scene-${sceneIndex + 1}`} key={scene.index} onClick={() => { setIntent(scene.intent); setSceneDetail(sceneIndex); }}>
+              <img className="scene-person" src={`/editorial/${scene.image}`} alt="" />
+              <div><small>{scene.index}</small><b>{scene.title}</b><span>{scene.label}</span></div><p>{scene.copy}</p>
+            </button>)}
+          </div>
+        </section>
+        {sceneDetail !== null && (
+          <div className="scene-modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) setSceneDetail(null); }}>
+            <section className="scene-modal" role="dialog" aria-modal="true" aria-label={sceneMoments[sceneDetail].title}>
+              <button className="scene-modal-close" onClick={() => setSceneDetail(null)} aria-label="关闭场景介绍">×</button>
+              <div className={`scene-modal-portrait scene-${sceneDetail + 1}`}><img src={`/editorial/${sceneMoments[sceneDetail].image}`} alt="" /></div>
+              <div className="scene-modal-copy"><p className="kicker">{sceneMoments[sceneDetail].label}</p><h2>{sceneMoments[sceneDetail].title}</h2><p>{sceneMoments[sceneDetail].copy}</p><button className="scene-modal-enter" onClick={() => { setSceneDetail(null); setStage("upload"); }}>从这里开始&nbsp; →</button></div>
+            </section>
+          </div>
+        )}
+      </>}
       {stage === "upload" && (
-        <section className="landing">
-          <div className="landing-copy">
-            <p className="kicker">REFERENCE · TRY ON · LEARN</p>
-            <h1>
-              先看见适合，
-              <br />
-              再真正学会。
-            </h1>
-            <p className="lead">
-              上传喜欢的妆效，先生成一张真实感静态预览，再进入本地的面部定位与分区跟练。
-            </p>
-            <label className="upload-cta">
-              <input type="file" accept="image/*" onChange={onFile} />
-              <span>上传妆容范本</span>
-              <small>图片仅在此设备处理</small>
-            </label>
-            <button className="text-action" onClick={() => setStage("design")}>
-              没有图片？用文字描述风格 →
-            </button>
+        <section className="inspiration-page">
+          <div className="inspiration-banner">
+            <img src="/editorial/mirrormate-banner-v2.png" alt="MirrorMate 妆容灵感" />
+            <div className="banner-copy"><p className="kicker">YOUR LOOK, IN MOTION</p><h1>先把心动的妆，<br />带到镜子前。</h1><span>上传一张灵感图，把它拆成属于你的对镜动作。</span></div>
           </div>
-          <div className="hero-editorial" aria-label="BeautyCue 对镜化妆场景">
-            <img
-              src="https://images.pexels.com/photos/8956115/pexels-photo-8956115.jpeg?auto=compress&cs=tinysrgb&w=1200"
-              alt="女性在镜前使用化妆刷"
-            />
-            <div className="hero-shade" />
-            <span className="hero-live"><i /> 478 点实时定位</span>
-            <div className="hero-note hero-note-top">
-              <small>当前教学区域</small>
-              <b>面颊 · 向上晕染</b>
+          <div className="inspiration-main">
+            <div className="reference-input-area">
+              <label className={`inspiration-upload ${reference ? "has-image" : ""}`}>
+                <input type="file" accept="image/*" onChange={onFile} />
+                {reference ? <img src={reference} alt="已上传妆容范本" /> : <><b>＋</b><strong>上传妆容灵感</strong><span>JPG / PNG · 仅用于本次体验</span></>}
+              </label>
+              <label className="look-name-input upload-look-name">
+                <span>妆容命名</span>
+                <input
+                  value={lookName}
+                  onChange={(event) => { setLookName(event.target.value); setLookNameTouched(true); }}
+                  placeholder={reference ? templates[templateKey].name : "上传后可自动生成"}
+                  aria-label="妆容名称"
+                />
+                <small>{reference ? "留空时，使用图片解析出的名称" : "可先输入；上传后也会自动生成建议名称"}</small>
+              </label>
             </div>
-            <div className="hero-note hero-note-bottom">
-              <small>不用盲猜落点</small>
-              <b>参考图变成可跟练的方向</b>
-            </div>
-            <p>BeautyCue visual archive · Pexels</p>
-          </div>
-          <div className="capabilities">
-            <div>
-              <b>01</b>
-              <span>图片生成静态预览</span>
-            </div>
-            <div>
-              <b>02</b>
-              <span>478 点实时定位</span>
-            </div>
-            <div>
-              <b>03</b>
-              <span>满意后再教学</span>
-            </div>
-            <div>
-              <b>04</b>
-              <span>脸上分区跟练</span>
+            <div className="inspiration-copy">
+              <p className="kicker">IMAGE-TO-MIRROR</p>
+              <h2>一张灵感图，<br />一段属于你的练习。</h2>
+              <p>先建立静态试妆方向，再用面部定位把重点拆解为可跟练的局部动作。</p>
+              <button className="primary start-tryon" onClick={startTryOn}>完成上传，开始试妆 <span>→</span></button>
+              <small className="privacy-line"><i /> 图片只在本次会话中使用</small>
             </div>
           </div>
+          <div className="intent-panel">
+            <div><p className="kicker">CHOOSE YOUR INTENTION</p><h2>这次，你想怎样靠近它？</h2></div>
+            <div className="intent-options">
+              {([
+                ["learn", "学会它", "拆成步骤，跟着镜子练"],
+                ["replicate", "尽量复刻", "保留参考妆的完整情绪"],
+                ["everyday", "自然一点", "把灵感调成日常可用版本"],
+              ] as const).map(([key, name, detail]) => <button key={key} className={intent === key ? "active" : ""} onClick={() => setIntent(key)}><b>{name}</b><span>{detail}</span></button>)}
+            </div>
+          </div>
+          <div className="idea-bar">
+            <div><label htmlFor="look-idea">还有什么想先告诉 MirrorMate？</label><textarea id="look-idea" value={prompt} onChange={(e) => { setPrompt(e.target.value); setPromptDirty(true); }} placeholder="例如：眼尾想更干净一些，但保留一点氛围感" /></div>
+            <button className="dictation-button" onClick={startPromptDictation}>◉ <span>说出想法</span></button>
+          </div>
+          <section className="feature-gallery" aria-label="技术展示">
+            <article><figure><img src="/editorial/feature-static-preview-v1.png" alt="模特跟随白色动态箭头练习眼妆" /></figure><div><em>01</em><h3>静态妆效预览</h3><p>先判断方向，再开始练习</p></div></article>
+            <article><figure><img src="/editorial/feature-face-landmarks-v1.png" alt="贴合模特面部的三角拓扑定位" /></figure><div><em>02</em><h3>478 点面部定位</h3><p>每一步都落在自己的脸上</p></div></article>
+            <article><figure><img src="/editorial/feature-voice-coach-v1.png" alt="模特在镜前使用实时语音陪练" /></figure><div><em>03</em><h3>实时语音陪练</h3><p>卡住时，只问当下这一件事</p></div></article>
+          </section>
         </section>
       )}
       {stage === "design" && (
@@ -883,38 +1184,27 @@ export default function MirrorMateDemo() {
           onUseAsGoal={() => startTryOn()}
         />
       )}
+      {stage === "tryon-loading" && (
+        <section className="coach-loading tryon-loading" aria-label="正在生成试妆预览">
+          <div className="wave-stage" aria-hidden="true"><i /><i /><i /></div>
+          <p className="kicker">MIRRORMATE · ALIGNING</p>
+          <h2>把这份灵感，<br />轻轻对准你的轮廓。</h2>
+          <span>{activeLookName} · 正在准备镜面预览</span>
+        </section>
+      )}
       {stage === "tryon" && (
-        <section className="tryon-layout">
+        <section className="tryon-layout stage-fade">
           <div className="tryon-copy">
-            <p className="kicker">STEP 2 · 实时试妆</p>
-            <h2>{t.name}</h2>
-            <p>
-              这里显示的是本地面部定位与落点辅助。它会随网格移动，但不是已实现的真实妆容迁移；真实感效果请先使用上一页静态预览判断方向。
-            </p>
-            <div className="mesh-status">
-              <i className={meshStatus} />
-              <div>
-                <b>{statusCopy(meshStatus)}</b>
-                <span>面部关键点仅在本设备实时计算</span>
-              </div>
+            <p className="kicker">STEP 2 · LOOK CHECK</p>
+            <h2>确认今天的<br />「{activeLookName}」。</h2>
+            <p>先在镜前看整体平衡；妆效名称会根据你输入的灵感词或参考图解析方向自动映射，也可在上一步手动修改。</p>
+            <div className="look-check-note">
+              <span><i className={meshStatus} />{meshStatus === "tracking" ? "已定位" : "准备定位"}</span>
+              <small>面部数据仅在本设备处理</small>
             </div>
-            <div className={`calibration ${trackingQuality}`}>
-              <b>{qualityCopy(trackingQuality)}</b>
-              <span>
-                {trackingQuality === "ready"
-                  ? "可以确认妆效并进入教学"
-                  : "调整后定位会更稳定"}
-              </span>
-            </div>
-            <button
-              className={`mesh-toggle ${showMesh ? "active" : ""}`}
-              onClick={() => setShowMesh((v) => !v)}
-            >
-              {showMesh ? "隐藏 3D 网格" : "查看 3D 面部网格"}
-            </button>
             <label className="intensity-control">
               <span>
-                妆效浓度 <b>{intensity}%</b>
+                妆感强度 <b>{intensity}%</b>
               </span>
               <input
                 type="range"
@@ -924,25 +1214,11 @@ export default function MirrorMateDemo() {
                 onChange={(e) => setIntensity(Number(e.target.value))}
               />
             </label>
-            <div className="tryon-palette">
-              {palette.map((c, i) => (
-                <button
-                  aria-label={`使用色板 ${i + 1}`}
-                  key={c + i}
-                  style={{ background: c }}
-                  onClick={() => {
-                    const nextPalette: [string, string, string] = [c, shift(c, -0.2), shift(c, 0.3)];
-                    setPalette(nextPalette);
-                    setEffectProfile(profileFromPalette(nextPalette, intensity));
-                  }}
-                />
-              ))}
-            </div>
             <button
               className="secondary wide"
               onClick={() => setStage("design")}
             >
-              换一个风格
+              返回调整灵感
             </button>
             <button
               className="primary wide accept-look"
@@ -953,9 +1229,8 @@ export default function MirrorMateDemo() {
                 trackingQuality !== "ready"
               }
             >
-              用这个教学方向开始跟练
+              确认，开始跟练&nbsp; →
             </button>
-            <p className="prototype-note">实时定位来自 MediaPipe 478 点面部网格；屏幕上的颜色仅是落点辅助，不代表真实妆容迁移。</p>
           </div>
           <LiveMirror
             camera={camera}
@@ -967,6 +1242,8 @@ export default function MirrorMateDemo() {
             intensity={intensity}
             look={templateKey}
             effectProfile={effectProfile}
+            effectsEnabled={previewEffectsVisible}
+            onEffectHoldChange={setPreviewEffectsVisible}
             mode="tryon"
             showMesh={showMesh}
             onQuality={onTrackingQuality}
@@ -977,6 +1254,14 @@ export default function MirrorMateDemo() {
           {cameraError && (
             <p className="camera-error tryon-error">{cameraError}</p>
           )}
+        </section>
+      )}
+      {stage === "coach-loading" && (
+        <section className="coach-loading" aria-label="正在进入对镜跟练">
+          <div className="wave-stage" aria-hidden="true"><i /><i /><i /></div>
+          <p className="kicker">MIRRORMATE · PREPARING</p>
+          <h2>把妆容拆成<br />可以跟上的动作。</h2>
+          <span>{activeLookName}</span>
         </section>
       )}
       {stage === "coach" && (
@@ -992,7 +1277,7 @@ export default function MirrorMateDemo() {
           <aside className="lesson-panel">
             <div>
               <p className="kicker">STEP 3 · 对镜跟练</p>
-              <h2>{t.name}</h2>
+              <h2>{activeLookName}</h2>
               <div className="progress-track">
                 <i style={{ width: `${progress}%` }} />
               </div>
@@ -1000,27 +1285,26 @@ export default function MirrorMateDemo() {
                 第 {step + 1} / {t.steps.length} 步
               </span>
             </div>
-            <ol className="step-list">
-              {t.steps.map((s, i) => (
-                <li
-                  key={s.title}
-                  className={i === step ? "active" : i < step ? "done" : ""}
-                >
-                  <button
-                    onClick={() => {
-                      setStep(i);
-                      setRescue(false);
-                    }}
-                  >
-                    <span>{i < step ? "✓" : i + 1}</span>
-                    <div>
-                      <b>{s.title}</b>
-                      <small>{s.short}</small>
-                    </div>
-                  </button>
-                </li>
+            <div className="step-groups" aria-label="练妆步骤">
+              {stepGroups.map((group, groupIndex) => (
+                <section className="step-group" key={group.title}>
+                  <header>
+                    <span>{String(groupIndex + 1).padStart(2, "0")}</span>
+                    <div><b>{group.title}</b><small>{group.note}</small></div>
+                  </header>
+                  <ol className="step-list">
+                    {group.steps.map((s) => (
+                      <li key={s.title} className={s.index === step ? "active" : s.index < step ? "done" : ""}>
+                        <button onClick={() => { setStep(s.index); setRescue(false); }}>
+                          <span>{s.index < step ? "✓" : s.index + 1}</span>
+                          <div><b>{s.title}</b><small>{s.short}</small></div>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
               ))}
-            </ol>
+            </div>
             <div className="privacy-mini">
               <i />
               {statusCopy(meshStatus)}
@@ -1102,76 +1386,35 @@ export default function MirrorMateDemo() {
               <b>镜面箭头</b>
               {directionCopy(current.zone)}
             </p>
-            <div className={`voice-call ${voiceStatus}`} aria-label="语音陪练">
-              <div className="voice-avatar" aria-hidden="true">
-                <i />
-                <i />
-                <i />
+            {rescue && (
+              <div className="tip" role="status">
+                <b>先别继续叠色</b>
+                <span>{coachSnapshot.knowledge.rescue}</span>
               </div>
-              <div className="voice-copy">
-                <b>AI 语音陪练</b>
-                <span>
-                  {voiceStatus === "listening"
-                    ? "千问实时通话中，可像和朋友一样自然聊天"
-                    : voiceStatus === "connecting"
-                      ? "正在连接千问实时陪练"
-                    : voiceStatus === "error"
-                      ? "千问未接通，未启用浏览器规则语音"
-                      : "接通千问实时陪练"}
-                </span>
-              </div>
-              {voiceStatus === "listening" || voiceStatus === "connecting" ? (
-                <button className="voice-hangup" onClick={stopVoiceCoach}>挂断</button>
-              ) : (
-                <button className="voice-connect" onClick={startVoiceCoach}>{voiceStatus === "error" ? "重试" : "接通"}</button>
-              )}
-              {voiceTranscript && <p className="voice-transcript">{voiceTranscript}</p>}
-            </div>
-            {rescue ? (
-              <div className="rescue-card">
-                <p>只先调整一个点</p>
-                <b>
-                  {templateKey === "contour"
-                    ? "用空刷向颈部带开两次"
-                    : "用干净刷从外向内轻扫两次"}
-                </b>
-                <span>完成后停下来观察，不要继续叠色。</span>
-                <button onClick={() => setRescue(false)}>我已调整</button>
-              </div>
-            ) : (
-              <button
-                className="help-button"
-                onClick={() => {
-                  setRescue(true);
-                  setEvents((v) => [...v, "用户主动求助：需要补救"]);
-                }}
-              >
-                我画出界了，帮我救一下
-              </button>
             )}
+            <div className="pet-coach-note"><b>MirrorMate 小桌宠在右下角陪你。</b><span>随时点它提问、求助或查看本次对话。</span></div>
             <div className="coach-controls">
-              <button onClick={speak}>▶ 朗读步骤</button>
-              <button
-                onClick={() => step > 0 && setStep(step - 1)}
-                disabled={step === 0}
-              >
-                上一步
-              </button>
               <button className="primary" onClick={next}>
-                {step === t.steps.length - 1 ? "完成练习" : "完成，下一步"}
+                {step === t.steps.length - 1 ? "完成妆容" : "标记此步完成"}
               </button>
             </div>
             <p className="prototype-note">
-              白色边界会随面部关键点移动；当前不识别刷具，也不进行颜值评价。
+              向 MirrorMate 直接提问工具、用量、落点或手法；它会围绕当前步骤回答。
             </p>
           </aside>
         </section>
       )}
       {stage === "finish" && (
         <section className="finish-screen">
+          <div className="confetti confetti-wave" aria-hidden="true">
+            {Array.from({ length: 54 }, (_, index) => {
+              const spread = (index % 27 - 13) * 42 + (index > 26 ? 18 : 0);
+              return <i key={index} style={{ "--x": `${spread}px`, "--r": `${(index * 47) % 560 - 280}deg`, "--d": `${(index % 7) * 25 - 80}px`, animationDelay: `${(index % 9) * 0.035}s` } as React.CSSProperties} />;
+            })}
+          </div>
           <div className="finish-mark">✓</div>
           <p className="kicker">SESSION COMPLETE</p>
-          <h1>你完成了「{t.name}」</h1>
+          <h1>你完成了「{activeLookName}」</h1>
           <p>
             从参考风格、实时试妆到对镜跟练，这个妆效已经变成了你能再次复现的动作。
           </p>
@@ -1179,7 +1422,7 @@ export default function MirrorMateDemo() {
             <div>
               <span>已确认妆效</span>
               <b>
-                {t.name} · {intensity}%
+                {activeLookName} · {intensity}%
               </b>
             </div>
             <div>
@@ -1195,6 +1438,14 @@ export default function MirrorMateDemo() {
               <span>隐私状态</span>
               <b className="safe">本地图片已在结束时清除</b>
             </div>
+            <div>
+              <span>本次陪练</span>
+              <b>{events.filter((item) => item.includes("语音") || item.includes("补救")).length ? "你主动使用了镜面引导" : "你完成了自主跟练"}</b>
+            </div>
+            <div>
+              <span>下次可以练习</span>
+              <b>{t.area === "眼妆" ? "把眼尾方向留给自己完成" : "在稳定光线下练习更轻的落色"}</b>
+            </div>
           </div>
           <div className="event-log">
             <h3>本次学习轨迹</h3>
@@ -1206,6 +1457,9 @@ export default function MirrorMateDemo() {
             ))}
           </div>
           <div className="delete-row">
+            <button className="secondary finish-back" onClick={() => { setStep(t.steps.length - 1); setStage("coach"); }}>
+              ← 返回上一步
+            </button>
             <div>
               <b>结束并清除会话</b>
               <span>清除参考图、摄像头流和临时分析结果</span>
@@ -1215,6 +1469,34 @@ export default function MirrorMateDemo() {
             </button>
           </div>
         </section>
+      )}
+      {stage !== "intro" && (
+        <aside className={`mirror-pet ${voiceStatus} ${petOpen ? "open" : ""} dialogue-${petDialoguePlacement.vertical} dialogue-${petDialoguePlacement.horizontal}`} style={petPosition ? { left: petPosition.left, top: petPosition.top, right: "auto", bottom: "auto" } : undefined} aria-label="MirrorMate 悬浮陪练助手">
+          {petOpen && (
+            <section className="pet-dialogue" aria-label="MirrorMate 聊天记录">
+              <header>
+                <div className="pet-mini" aria-hidden="true"><img src="/editorial/xiaozhuangban-puff-v2.png" draggable={false} alt="" /></div>
+                <div><b>MirrorMate 小妆伴</b><span>{voiceStatus === "listening" ? "正在陪你练妆" : voiceStatus === "connecting" ? "正在靠近镜子" : "随时准备陪你"}</span></div>
+                <button onClick={() => setPetOpen(false)} aria-label="收起聊天窗口">×</button>
+              </header>
+              <div className="pet-chat-log" aria-live="polite">
+                {chatHistory.length ? chatHistory.map((message, index) => <p className={/^(你说|你问)/.test(message) ? "from-user" : "from-pet"} key={`${message}-${index}`}>{displayChatMessage(message)}</p>) : <p className="from-pet">嗨，我是你的镜前小妆伴。想从哪一部分开始？</p>}
+              </div>
+              <form className="pet-composer" onSubmit={(event) => { event.preventDefault(); sendAgentMessage(); }}>
+                <input value={agentDraft} onChange={(event) => setAgentDraft(event.target.value)} placeholder="和小妆伴说句话…" aria-label="输入给 MirrorMate 的问题" />
+                <button type="submit" aria-label="发送问题">↑</button>
+              </form>
+              <div className="pet-actions">
+                {voiceStatus === "listening" || voiceStatus === "connecting" ? <button onClick={stopVoiceCoach}>结束陪伴</button> : <button onClick={startVoiceCoach}>{voiceStatus === "error" ? "重新接通" : "开始陪我"}</button>}
+                <small>聊天记录只保留在本次体验，重新开始时会清除。</small>
+              </div>
+            </section>
+          )}
+          <button ref={petToggleRef} className="pet-toggle" onPointerDown={startPetDrag} onClick={togglePet} aria-expanded={petOpen} aria-label="打开或拖动 MirrorMate 小妆伴">
+            <span className="pet-portrait" aria-hidden="true"><img src="/editorial/xiaozhuangban-puff-v2.png" draggable={false} alt="" /></span>
+            <span className="pet-caption">{voiceStatus === "listening" ? "陪你中" : voiceStatus === "connecting" ? "连线中" : "小妆伴"}</span>
+          </button>
+        </aside>
       )}
     </main>
   );
@@ -1228,6 +1510,8 @@ function LiveMirror({
   onMeshStatus,
   palette,
   effectProfile,
+  effectsEnabled = true,
+  onEffectHoldChange,
   intensity,
   look,
   teachingZone,
@@ -1249,6 +1533,8 @@ function LiveMirror({
   onMeshStatus: (s: MeshStatus) => void;
   palette: string[];
   effectProfile: MakeupEffectProfile;
+  effectsEnabled?: boolean;
+  onEffectHoldChange?: (visible: boolean) => void;
   intensity: number;
   look: TemplateKey;
   teachingZone?: string;
@@ -1288,6 +1574,7 @@ function LiveMirror({
         enabled={camera}
         palette={palette}
         effectProfile={effectProfile}
+        effectsEnabled={effectsEnabled}
         intensity={intensity}
         look={look}
         teachingZone={teachingZone}
@@ -1305,6 +1592,18 @@ function LiveMirror({
           视线稍移到屏幕顶端镜头旁，预览更接近对镜效果
         </div>
       )}
+      {onEffectHoldChange && (
+        <button
+          className="effect-compare-hold"
+          onPointerDown={(event) => { event.preventDefault(); onEffectHoldChange(false); }}
+          onPointerUp={() => onEffectHoldChange(true)}
+          onPointerCancel={() => onEffectHoldChange(true)}
+          onPointerLeave={(event) => { if (event.buttons === 1) onEffectHoldChange(true); }}
+          aria-label="按住查看无特效原始画面"
+        >
+          {effectsEnabled ? "按住查看无特效" : "松开恢复妆效"}
+        </button>
+      )}
       <div className="mirror-caption">
         <span>{mode === "tryon" ? "LIVE LOOK" : "LIVE COACH"}</span>
         <b>{fallback ? "示例脸降级模式" : "妆效跟随面部姿态"}</b>
@@ -1318,28 +1617,24 @@ function DemoFace({ look, palette }: { look: TemplateKey; palette: string[] }) {
       className={`demo-mirror compact ${look}`}
       style={{ "--makeup": palette[1] } as React.CSSProperties}
     >
-      <div className="demo-face">
-        <div className="hair" />
-        <div className="demo-brow l" />
-        <div className="demo-brow r" />
-        <div className="demo-eye l">
-          <i />
-        </div>
-        <div className="demo-eye r">
-          <i />
-        </div>
-        <div className="demo-nose" />
-        <div className="demo-mouth" />
-      </div>
-      <div
-        className={`guide-overlay ${look} ${look === "contour" ? "cheek" : "outer"}`}
-      >
-        <i className="z1" />
-        <i className="z2" />
-      </div>
+      <img className="demo-ai-model" src="/editorial/tryon-ai-model.png" alt="AI 妆容预览模特" />
+      <svg className="makeup-topology" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <g>
+          <polygon points="10,41 33,31 50,45" />
+          <polygon points="50,45 67,31 90,41" />
+          <polygon points="10,41 31,55 50,45" />
+          <polygon points="50,45 69,55 90,41" />
+          <polygon points="31,55 50,45 50,71" />
+          <polygon points="50,45 69,55 50,71" />
+          <polygon points="10,59 41,67 31,83" />
+          <polygon points="90,59 59,67 69,83" />
+          <polygon points="31,83 50,71 69,83" />
+          <polygon points="31,83 50,100 69,83" />
+        </g>
+      </svg>
       <div className="mirror-caption">
-        <span>MAKEUP PREVIEW</span>
-        <b>{look === "contour" ? "立体轮廓" : "眼妆风格"}</b>
+        <span>AI MAKEUP MAP</span>
+        <b>{look === "contour" ? "轮廓与光影" : "完整妆容解析"}</b>
       </div>
     </div>
   );

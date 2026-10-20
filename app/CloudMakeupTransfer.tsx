@@ -101,7 +101,7 @@ export default function CloudMakeupTransfer({ referenceFile, referenceUrl, onBac
         <div className="transfer-rule"><b>生成边界</b><span>仅生成静态效果图；不会被用于实时贴脸、五官评分或训练模型。</span></div>
         <label className="transfer-consent">
           <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-          <span>我同意仅为本次生成，将我的正脸照和参考妆容图发送至阿里云百炼图像服务。LumaMuse 服务端不持久化保存输入；调用可能产生费用。</span>
+          <span>我同意仅为本次生成，将我的正脸照和参考妆容图发送至阿里云百炼图像服务。MirrorMate 服务端不持久化保存输入；调用可能产生费用。</span>
         </label>
         <button className="primary" disabled={!faceFile || !activeReference || !consent || busy} onClick={generate}>
           {busy ? "正在生成真实感预览…" : "生成试妆预览"}
