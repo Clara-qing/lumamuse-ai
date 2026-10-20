@@ -782,12 +782,9 @@ export default function MirrorMateDemo() {
           smooth_output: false,
           input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
           modalities: ["text", "audio"],
-          turn_detection: {
-            type: "semantic_vad",
-            prefix_padding_ms: 500,
-            silence_duration_ms: 700,
-            threshold: 0.35,
-          },
+          // Keep the provider's initial VAD mode for the handshake. Bailian
+          // rejects an update that changes turn_detection while its input
+          // audio buffer is pending, which would also discard instructions.
           instructions: coachInstructions(snapshot),
         }
       : { instructions: coachInstructions(snapshot) };
@@ -875,6 +872,10 @@ export default function MirrorMateDemo() {
       const track = voiceStream.getAudioTracks()[0];
       if (track) track.enabled = false;
       const sender = track ? pc.addTrack(track, voiceStream) : null;
+      // `enabled = false` can still negotiate a silent RTP stream in some
+      // browsers. Remove the sender's track as well, then restore it only
+      // after session.updated confirms the companion persona was accepted.
+      await sender?.replaceTrack(null);
       // Creating a local channel makes it part of the SDP negotiation. Bailian
       // then opens its own `txt` channel for realtime events; messages must be
       // read from and sent back on that server-created channel.
