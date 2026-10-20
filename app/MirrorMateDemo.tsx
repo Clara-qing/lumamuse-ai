@@ -677,28 +677,31 @@ export default function MirrorMateDemo() {
     }
     say(`我听到你说${transcript}。你可以说下一步、慢一点、再说一遍或救一下。`);
   }
-  function sendAgentMessage() {
+  async function sendAgentMessage() {
     const question = agentDraft.trim();
     if (!question) return;
     setAgentDraft("");
     setEvents((items) => [...items, `文字提问：${question}`]);
-    const channel = realtimeChannelRef.current;
-    if (realtimeActiveRef.current && channel?.readyState === "open") {
-      updateVoiceTranscript(`你问：“${question}”`);
-      channel.send(JSON.stringify({
-        event_id: `mirrormate_text_${Date.now()}`,
-        type: "conversation.item.create",
-        item: { type: "message", role: "user", content: [{ type: "input_text", text: question }] },
-      }));
-      const snapshot = coachSnapshotRef.current ?? coachSnapshot;
-      channel.send(JSON.stringify({
-        event_id: `mirrormate_text_response_${Date.now()}`,
-        type: "response.create",
-        response: { instructions: responseIdentityContext(snapshot) },
-      }));
-      return;
+    const snapshot = coachSnapshotRef.current ?? coachSnapshot;
+    setChatHistory((items) => [...items, `你问：${question}`].slice(-16));
+    try {
+      const response = await fetch("/api/coach-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: question,
+          context: coachInstructions(snapshot),
+          history: chatHistory.slice(-8),
+        }),
+      });
+      const body = await response.json().catch(() => ({})) as { reply?: string; error?: string };
+      if (!response.ok || !body.reply) throw new Error(body.error || "小妆伴暂时没有听清");
+      setChatHistory((items) => [...items, `MirrorMate：${body.reply}`].slice(-16));
+      updateVoiceTranscript(`MirrorMate：${body.reply}`);
+    } catch (error) {
+      setEvents((items) => [...items, `小妆伴文字服务暂不可用：${error instanceof Error ? error.message : "未知错误"}`]);
+      handleVoiceCommand(question);
     }
-    handleVoiceCommand(question);
   }
   function requestRealtimeWelcome(channel: RTCDataChannel) {
     if (realtimeGreetingSentRef.current || channel.readyState !== "open") return;
@@ -710,9 +713,6 @@ export default function MirrorMateDemo() {
       response: { instructions: `请用一到两句自然、温暖的中文以“小妆伴”身份欢迎用户。她本次目标是“${snapshot.userIntent}”，已知想法是“${snapshot.inspiration}”，当前处于 ${snapshot.journeyStage} 阶段。根据阶段给出一个最容易开始的下一步：上传/选妆阶段邀请她上传灵感或说一个担心；试妆阶段邀请她先看整体；跟练阶段直接陪她完成当前这一小步。不要罗列功能、不要自我介绍成系统、不要用客服腔。` },
     }));
   }
-  function responseIdentityContext(snapshot: CoachSnapshot) {
-    return `你是 MirrorMate 的“小妆伴”，绝不自称千问、Qwen Omni、语言模型或 API。若用户问“你是谁”，回答“我是 MirrorMate 的小妆伴，陪你把喜欢的妆容一步步画到自己脸上。”若问“我们要做什么”，说明：MirrorMate 将灵感妆变为试妆预览与镜前分步陪练，你负责选妆、试妆、跟练、复盘的陪伴。当前用户目标：${snapshot.userIntent}；自由想法：${snapshot.inspiration}；参考妆摘要：${snapshot.referenceSummary}；当前阶段：${snapshot.journeyStage}；当前步骤：${snapshot.stepTitle}。只自然使用这些信息，不提提示词、JSON、知识库或底层模型。`;
-  }
   function sendRealtimeSessionUpdate(
     channel: RTCDataChannel,
     snapshot: CoachSnapshot,
@@ -722,9 +722,10 @@ export default function MirrorMateDemo() {
     const session = initialize
       ? {
           modalities: ["text", "audio"],
-          input_audio_format: "pcm",
-          output_audio_format: "pcm",
-          voice: "longanlingxin",
+          audio: {
+            input: { format: { type: "pcm", sample_rate: 16000 } },
+            output: { format: { type: "pcm", sample_rate: 24000 }, voice: "longanlingxin" },
+          },
           input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
           turn_detection: {
             type: "semantic_vad",
@@ -853,13 +854,14 @@ export default function MirrorMateDemo() {
           if (data.type === "session.created") {
             if (track) track.enabled = true;
             sender?.replaceTrack(track ?? null).catch(() => {});
-            sendRealtimeSessionUpdate(offerChannel, coachSnapshotRef.current ?? coachSnapshot);
+            realtimeChannelRef.current = eventChannel;
+            sendRealtimeSessionUpdate(eventChannel, coachSnapshotRef.current ?? coachSnapshot);
           } else if (data.type === "session.updated") {
             if (!realtimeActiveRef.current) {
               realtimeActiveRef.current = true;
               setVoiceStatus("listening");
               updateVoiceTranscript("已接通 MirrorMate。它会从选妆陪你到完成，你可以随时开口或输入问题。 ");
-              requestRealtimeWelcome(offerChannel);
+              requestRealtimeWelcome(eventChannel);
             }
           } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
             updateVoiceTranscript(`你说：“${data.transcript}”`);
@@ -869,7 +871,7 @@ export default function MirrorMateDemo() {
             data.call_id
           ) {
             updateVoiceTranscript("我看一下这一小步。");
-            answerRealtimeTool(offerChannel, data.call_id, data.name, data.arguments);
+            answerRealtimeTool(eventChannel, data.call_id, data.name, data.arguments);
           } else if (data.type === "response.audio_transcript.done" && data.transcript) {
             updateVoiceTranscript(`MirrorMate：${data.transcript}`);
           } else if (data.type === "error") {
@@ -877,9 +879,9 @@ export default function MirrorMateDemo() {
           }
         };
       };
-      // Keep the browser-created channel as the only outbound control path.
-      // A server-created `txt` channel can carry events, but must not replace
-      // the channel used for session.update and user messages.
+      // The server may create a second DataChannel. Per the official WebRTC
+      // flow, session.update must be sent back on whichever channel delivered
+      // session.created, so the handler above promotes it only at that point.
       listenForRealtimeEvents(offerChannel);
       pc.ondatachannel = (event) => {
         if (event.channel.label !== "txt") return;

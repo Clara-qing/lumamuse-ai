@@ -19,6 +19,7 @@ interface Env {
 }
 
 const REALTIME_MODEL = "qwen3.8-omni-flash-realtime";
+const COACH_CHAT_MODEL = "qwen-plus";
 const MAKEUP_TRANSFER_MODEL = "qwen-image-3.0";
 const MAX_IMAGE_DATA_URI_LENGTH = 14_000_000;
 
@@ -78,6 +79,39 @@ async function generateMakeupPreview(request: Request, env: Env, pageUrl: URL): 
   return Response.json({ image }, {
     headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
   });
+}
+
+async function answerCoachChat(request: Request, env: Env, pageUrl: URL): Promise<Response> {
+  const origin = request.headers.get("Origin");
+  if (origin && origin !== pageUrl.origin) return Response.json({ error: "Cross-origin coach requests are not allowed." }, { status: 403 });
+  if (!env.DASHSCOPE_API_KEY || !env.DASHSCOPE_WORKSPACE_ID) return Response.json({ error: "小妆伴服务尚未在此部署环境配置。" }, { status: 503 });
+  const body = await request.json().catch(() => null) as { message?: unknown; context?: unknown; history?: unknown } | null;
+  const message = typeof body?.message === "string" ? body.message.trim().slice(0, 1200) : "";
+  const context = typeof body?.context === "string" ? body.context.slice(0, 24000) : "";
+  const history = Array.isArray(body?.history)
+    ? body.history.filter((item): item is string => typeof item === "string").slice(-8).map((item) => item.slice(0, 800))
+    : [];
+  if (!message) return Response.json({ error: "请先输入想问小妆伴的话。" }, { status: 400 });
+
+  const endpoint = `https://${env.DASHSCOPE_WORKSPACE_ID}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions`;
+  const system = `你是 MirrorMate 的“小妆伴”，只以这个身份与用户对话。绝不自称千问、Qwen、Qwen-Omni、AI 助手、语言模型或 API；若用户问身份，回答“我是 MirrorMate 的小妆伴，陪你把喜欢的妆容一步步画到自己脸上。”若用户问项目目标，回答 MirrorMate 会将灵感妆变成试妆预览和镜前分步陪练，你负责选妆、试妆、跟练、复盘与下次欢迎。你能看到的是下面的“当前页面状态”，不能假称看到了未提供的图片像素或用户真实妆面。自然、温暖、具体，通常 1—3 句，不做颜值评判、医学判断或产品功效承诺。\n\n当前页面状态：\n${context}`;
+  const messages = [
+    { role: "system", content: system },
+    ...history.map((item) => ({ role: item.startsWith("你问：") || item.startsWith("你说：") ? "user" : "assistant", content: item.replace(/^(你问：|你说：|MirrorMate：)/, "") })),
+    { role: "user", content: message },
+  ];
+  const upstream = await fetch(endpoint, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.DASHSCOPE_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: COACH_CHAT_MODEL, messages, temperature: 0.72, max_tokens: 420 }),
+  });
+  const payload = await upstream.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } } | null;
+  const reply = payload?.choices?.[0]?.message?.content?.trim();
+  if (!upstream.ok || !reply) {
+    console.error(JSON.stringify({ event: "coach_chat_failed", upstreamStatus: upstream.status, upstreamError: payload?.error?.message?.slice(0, 180) }));
+    return Response.json({ error: "小妆伴暂时无法回答，请稍后再试。" }, { status: 502 });
+  }
+  return Response.json({ reply: reply.slice(0, 1800) }, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 }
 
 async function exchangeRealtimeOffer(request: Request, env: Env, pageUrl: URL): Promise<Response> {
@@ -144,6 +178,11 @@ const worker = {
     if (url.pathname === "/api/realtime/offer") {
       if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
       return exchangeRealtimeOffer(request, env, url);
+    }
+
+    if (url.pathname === "/api/coach-chat") {
+      if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+      return answerCoachChat(request, env, url);
     }
 
     if (url.pathname === "/api/makeup-transfer") {
