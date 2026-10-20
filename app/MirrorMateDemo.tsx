@@ -310,6 +310,7 @@ export default function MirrorMateDemo() {
     [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle"),
     [agentDraft, setAgentDraft] = useState(""),
     [chatHistory, setChatHistory] = useState<string[]>([]),
+    [agentReplyStreaming, setAgentReplyStreaming] = useState(false),
     [petOpen, setPetOpen] = useState(false),
     [petPosition, setPetPosition] = useState<{ left: number; top: number } | null>(null),
     [petDialoguePlacement, setPetDialoguePlacement] = useState<PetDialoguePlacement>({ vertical: "above", horizontal: "end" }),
@@ -330,6 +331,7 @@ export default function MirrorMateDemo() {
     welcomeShownRef = useRef(false),
     petDragRef = useRef({ startX: 0, startY: 0, left: 0, top: 0, didDrag: false }),
     petToggleRef = useRef<HTMLButtonElement>(null),
+    chatLogRef = useRef<HTMLDivElement>(null),
     coachSnapshotRef = useRef<CoachSnapshot | null>(null);
   const t = templates[templateKey],
     activeLookName = lookName.trim() || t.name,
@@ -391,6 +393,10 @@ export default function MirrorMateDemo() {
       sendRealtimeSessionUpdate(channel, coachSnapshot, false);
     }
   }, [coachSnapshot]);
+  useEffect(() => {
+    const log = chatLogRef.current;
+    if (log) log.scrollTop = log.scrollHeight;
+  }, [chatHistory, agentReplyStreaming]);
   useEffect(() => {
     if (stage !== "upload" || welcomeShownRef.current) return;
     welcomeShownRef.current = true;
@@ -680,11 +686,15 @@ export default function MirrorMateDemo() {
   }
   async function sendAgentMessage() {
     const question = agentDraft.trim();
-    if (!question) return;
+    if (!question || agentReplyStreaming) return;
     setAgentDraft("");
     setEvents((items) => [...items, `文字提问：${question}`]);
     const snapshot = coachSnapshotRef.current ?? coachSnapshot;
     setChatHistory((items) => [...items, `你问：${question}`].slice(-16));
+    setAgentReplyStreaming(true);
+    // Create the assistant bubble before the network round trip so the user
+    // gets immediate feedback. It is replaced incrementally by SSE deltas.
+    setChatHistory((items) => [...items, "MirrorMate："].slice(-16));
     try {
       const response = await fetch("/api/coach-chat", {
         method: "POST",
@@ -693,15 +703,54 @@ export default function MirrorMateDemo() {
           message: question,
           context: coachInstructions(snapshot),
           history: chatHistory.slice(-8),
+          stream: true,
         }),
       });
-      const body = await response.json().catch(() => ({})) as { reply?: string; error?: string };
-      if (!response.ok || !body.reply) throw new Error(body.error || "小妆伴暂时没有听清");
-      setChatHistory((items) => [...items, `MirrorMate：${body.reply}`].slice(-16));
-      updateVoiceTranscript(`MirrorMate：${body.reply}`);
+      if (!response.ok || !response.body) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || "小妆伴暂时没有听清");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let reply = "";
+      let buffer = "";
+      const appendDelta = (delta: string) => {
+        if (!delta) return;
+        reply += delta;
+        setChatHistory((items) => {
+          const next = [...items];
+          const last = next.length - 1;
+          if (last >= 0 && next[last].startsWith("MirrorMate：")) next[last] = `MirrorMate：${reply}`;
+          return next;
+        });
+      };
+      const consumeEvent = (raw: string) => {
+        const data = raw.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("");
+        if (!data || data === "[DONE]") return;
+        try {
+          const chunk = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string | null } }> };
+          appendDelta(chunk.choices?.[0]?.delta?.content || "");
+        } catch { /* Ignore malformed keepalive frames. */ }
+      };
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        let separator = buffer.match(/\r?\n\r?\n/);
+        while (separator?.index !== undefined) {
+          consumeEvent(buffer.slice(0, separator.index));
+          buffer = buffer.slice(separator.index + separator[0].length);
+          separator = buffer.match(/\r?\n\r?\n/);
+        }
+        if (done) break;
+      }
+      if (!reply) throw new Error("小妆伴暂时没有听清");
+      updateVoiceTranscript(`MirrorMate：${reply}`);
     } catch (error) {
+      setChatHistory((items) => items.filter((item, index) => !(index === items.length - 1 && item === "MirrorMate：")));
       setEvents((items) => [...items, `小妆伴文字服务暂不可用：${error instanceof Error ? error.message : "未知错误"}`]);
       handleVoiceCommand(question);
+    } finally {
+      setAgentReplyStreaming(false);
     }
   }
   function requestRealtimeWelcome(channel: RTCDataChannel) {
@@ -1505,12 +1554,16 @@ export default function MirrorMateDemo() {
                 <div><b>MirrorMate 小妆伴</b><span>{voiceStatus === "listening" ? "正在陪你练妆" : voiceStatus === "connecting" ? "正在靠近镜子" : "随时准备陪你"}</span></div>
                 <button onClick={() => setPetOpen(false)} aria-label="收起聊天窗口">×</button>
               </header>
-              <div className="pet-chat-log" aria-live="polite">
-                {chatHistory.length ? chatHistory.map((message, index) => <p className={/^(你说|你问)/.test(message) ? "from-user" : "from-pet"} key={`${message}-${index}`}>{displayChatMessage(message)}</p>) : <p className="from-pet">嗨，我是你的镜前小妆伴。想从哪一部分开始？</p>}
+              <div ref={chatLogRef} className="pet-chat-log" aria-live="polite">
+                {chatHistory.length ? chatHistory.map((message, index) => {
+                  const isUser = /^(你说|你问)/.test(message);
+                  const isStreaming = agentReplyStreaming && index === chatHistory.length - 1 && !isUser;
+                  return <p className={`${isUser ? "from-user" : "from-pet"}${isStreaming ? " streaming" : ""}`} key={`${message}-${index}`}>{displayChatMessage(message)}{isStreaming && <span className="streaming-dots" aria-label="正在生成">…</span>}</p>;
+                }) : <p className="from-pet">嗨，我是你的镜前小妆伴。想从哪一部分开始？</p>}
               </div>
               <form className="pet-composer" onSubmit={(event) => { event.preventDefault(); sendAgentMessage(); }}>
-                <input value={agentDraft} onChange={(event) => setAgentDraft(event.target.value)} placeholder="和小妆伴说句话…" aria-label="输入给 MirrorMate 的问题" />
-                <button type="submit" aria-label="发送问题">↑</button>
+                <input value={agentDraft} onChange={(event) => setAgentDraft(event.target.value)} placeholder="和小妆伴说句话…" aria-label="输入给 MirrorMate 的问题" disabled={agentReplyStreaming} />
+                <button type="submit" aria-label="发送问题" disabled={agentReplyStreaming}>↑</button>
               </form>
               <div className="pet-actions">
                 {voiceStatus === "listening" || voiceStatus === "connecting" ? <button onClick={stopVoiceCoach}>结束陪伴</button> : <button onClick={startVoiceCoach}>{voiceStatus === "error" ? "重新接通" : "开始陪我"}</button>}

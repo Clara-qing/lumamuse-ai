@@ -85,12 +85,13 @@ async function answerCoachChat(request: Request, env: Env, pageUrl: URL): Promis
   const origin = request.headers.get("Origin");
   if (origin && origin !== pageUrl.origin) return Response.json({ error: "Cross-origin coach requests are not allowed." }, { status: 403 });
   if (!env.DASHSCOPE_API_KEY || !env.DASHSCOPE_WORKSPACE_ID) return Response.json({ error: "小妆伴服务尚未在此部署环境配置。" }, { status: 503 });
-  const body = await request.json().catch(() => null) as { message?: unknown; context?: unknown; history?: unknown } | null;
+  const body = await request.json().catch(() => null) as { message?: unknown; context?: unknown; history?: unknown; stream?: unknown } | null;
   const message = typeof body?.message === "string" ? body.message.trim().slice(0, 1200) : "";
   const context = typeof body?.context === "string" ? body.context.slice(0, 24000) : "";
   const history = Array.isArray(body?.history)
     ? body.history.filter((item): item is string => typeof item === "string").slice(-8).map((item) => item.slice(0, 800))
     : [];
+  const wantsStream = body?.stream === true;
   if (!message) return Response.json({ error: "请先输入想问小妆伴的话。" }, { status: 400 });
 
   const endpoint = `https://${env.DASHSCOPE_WORKSPACE_ID}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions`;
@@ -103,8 +104,24 @@ async function answerCoachChat(request: Request, env: Env, pageUrl: URL): Promis
   const upstream = await fetch(endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.DASHSCOPE_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: COACH_CHAT_MODEL, messages, temperature: 0.72, max_tokens: 420 }),
+    body: JSON.stringify({ model: COACH_CHAT_MODEL, messages, temperature: 0.72, max_tokens: 420, stream: wantsStream }),
   });
+  if (wantsStream) {
+    if (!upstream.ok || !upstream.body) {
+      const failedPayload = await upstream.json().catch(() => null) as { error?: { message?: string } } | null;
+      console.error(JSON.stringify({ event: "coach_chat_stream_failed", upstreamStatus: upstream.status, upstreamError: failedPayload?.error?.message?.slice(0, 180) }));
+      return Response.json({ error: "小妆伴暂时无法回答，请稍后再试。" }, { status: 502 });
+    }
+    // Pass DashScope's Server-Sent Events through unchanged. The browser can
+    // paint each content delta immediately instead of waiting for a full reply.
+    return new Response(upstream.body, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
   const payload = await upstream.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } } | null;
   const reply = payload?.choices?.[0]?.message?.content?.trim();
   if (!upstream.ok || !reply) {
