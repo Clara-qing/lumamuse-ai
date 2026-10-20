@@ -778,6 +778,7 @@ export default function MirrorMateDemo() {
       ? {
           input_audio_format: "pcm",
           output_audio_format: "pcm",
+          voice: "Tina",
           smooth_output: false,
           input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
           modalities: ["text", "audio"],
@@ -903,24 +904,21 @@ export default function MirrorMateDemo() {
           };
           try { data = JSON.parse(event.data); } catch { return; }
           if (data.type === "session.created") {
-            // Bailian WebRTC requires media to be restored *after*
-            // session.created.  Waiting for session.updated here can leave a
-            // perfectly valid session muted forever, because not every
-            // WebRTC session echoes that event on the browser data channel.
-            // A browser-created and a server-created control channel can both
-            // exist.  Configure every channel that actually announces a
-            // session, rather than assuming the first one is the control
-            // channel.  This is what keeps the realtime persona from falling
-            // back to the provider default on different browser/edge paths.
+            // Keep microphone media gated until the provider has acknowledged
+            // session.update. If audio reaches the VAD before session.updated,
+            // the first turn can be processed with the provider-default Qwen
+            // persona instead of the configured MirrorMate companion persona.
+            // The channel carrying session.created is the one that must receive
+            // the update, including when the server creates a second channel.
             realtimeChannelRef.current = eventChannel;
-            if (track) track.enabled = true;
-            sender?.replaceTrack(track ?? null).catch(() => {});
-            realtimeActiveRef.current = true;
             realtimeConfigSentRef.current = true;
             updateVoiceTranscript("正在同步小妆伴的身份与本次妆容信息…");
             sendRealtimeSessionUpdate(eventChannel, coachSnapshotRef.current ?? coachSnapshot);
           } else if (data.type === "session.updated") {
-            if (realtimeConfigSentRef.current && realtimeActiveRef.current) {
+            if (realtimeConfigSentRef.current && !realtimeActiveRef.current) {
+              if (track) track.enabled = true;
+              sender?.replaceTrack(track ?? null).catch(() => {});
+              realtimeActiveRef.current = true;
               setVoiceStatus("listening");
               updateVoiceTranscript("已接通 MirrorMate 实时语音。小妆伴正在听，你可以直接说话。 ");
               requestRealtimeWelcome(eventChannel);
@@ -938,6 +936,7 @@ export default function MirrorMateDemo() {
             updateVoiceTranscript(`MirrorMate：${data.transcript}`);
           } else if (data.type === "error") {
             setVoiceStatus("error");
+            updateVoiceTranscript(`小妆伴的语音身份同步失败：${data.error?.message || "请点击重新接通"}`);
           }
         };
       };
