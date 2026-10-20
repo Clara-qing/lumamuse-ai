@@ -183,8 +183,8 @@ const templates: Record<
 const defaultPalette = ["#b97872", "#6f4543", "#e7c0ad"];
 const sceneMoments = [
   { index: "01", title: "赴约之前", label: "镜前复刻", image: "scene-east-asian-bangs-cutout.png", intent: "replicate", copy: "你把收藏很久的氛围带到镜子前。接下来，只需跟上几笔，让今晚的光落在你自己的轮廓上。" },
-  { index: "02", title: "早晨十分钟", label: "日常出门", image: "scene-caucasian-man-cutout-v2.png", intent: "everyday", copy: "你不必重新开始一天。用手边的几样东西，留下刚刚好的精神感，然后从容出门。" },
-  { index: "03", title: "卡在一笔", label: "即时追问", image: "scene-black-woman-cutout.png", intent: "learn", copy: "你可以在最犹豫的一笔停下来。问清刷子、方向与用量，再让这一笔变得笃定。" },
+  { index: "02", title: "早晨十分钟", label: "日常出门", image: "scene-caucasian-man-complete-v3.png", intent: "everyday", copy: "你不必重新开始一天。用手边的几样东西，留下刚刚好的精神感，然后从容出门。" },
+  { index: "03", title: "卡在一笔", label: "即时追问", image: "scene-black-woman-complete-v2.png", intent: "learn", copy: "你可以在最犹豫的一笔停下来。问清刷子、方向与用量，再让这一笔变得笃定。" },
   { index: "04", title: "留给自己", label: "自然化调整", image: "scene-latina-cutout.png", intent: "everyday", copy: "你保留心动的部分，也留出自己的呼吸。把灵感调成真正适合你日常的一版。" },
 ] as const;
 const defaultEffectProfile: MakeupEffectProfile = {
