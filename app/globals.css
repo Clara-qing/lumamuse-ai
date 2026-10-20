@@ -1882,8 +1882,8 @@ button:not(:disabled):active { transform:translateY(0) scale(.985); transition-d
 .scene-card{min-height:0;padding:clamp(8px,1.7vw,22px);aspect-ratio:.57/1;background-clip:border-box;transform:none}
 .scene-card::after{display:none}
 .scene-card:hover{transform:translateY(-5px);filter:none}
-.scene-person{width:100%;height:84%;object-fit:contain;object-position:center bottom}
-.scene-2 .scene-person{width:126%;height:99%;object-position:center bottom}
+.scene-person{width:100%;height:67%;object-fit:contain;object-position:center bottom}
+.scene-2 .scene-person{width:112%;height:71%;object-position:center bottom}
 .scene-1{background-color:#b9afa6}.scene-2{background-color:#8d7c6e}.scene-3{background-color:#917d70}.scene-4{background-color:#c0afa6}
 .scene-card b{font-size:clamp(12px,2.1vw,26px)}
 .scene-card small,.scene-card span{font-size:clamp(7px,.73vw,9px)}
@@ -1901,8 +1901,8 @@ button:not(:disabled):active { transform:translateY(0) scale(.985); transition-d
   .opening-scenes{padding-inline:12px}
   .scene-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}
   .scene-card{min-height:0;padding:8px 6px;aspect-ratio:.57/1}
-  .scene-person{width:108%;height:82%;left:50%}
-  .scene-2 .scene-person{height:96%}
+  .scene-person{width:108%;height:67%;left:50%}
+  .scene-2 .scene-person{width:112%;height:71%}
   .scene-card > div{column-gap:3px}
   .scene-card span{margin-top:3px;letter-spacing:.04em}
   .scene-card p{display:none}
