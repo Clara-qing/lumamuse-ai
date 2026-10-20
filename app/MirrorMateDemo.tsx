@@ -184,7 +184,7 @@ const templates: Record<
 const defaultPalette = ["#b97872", "#6f4543", "#e7c0ad"];
 const sceneMoments = [
   { index: "01", title: "赴约之前", label: "镜前复刻", image: "scene-east-asian-bangs-cutout.png", intent: "replicate", copy: "你把收藏很久的氛围带到镜子前。接下来，只需跟上几笔，让今晚的光落在你自己的轮廓上。" },
-  { index: "02", title: "早晨十分钟", label: "日常出门", image: "scene-wavy-caucasian-cutout.png", intent: "everyday", copy: "你不必重新开始一天。用手边的几样东西，留下刚刚好的精神感，然后从容出门。" },
+  { index: "02", title: "早晨十分钟", label: "日常出门", image: "scene-caucasian-man-editorial.png", intent: "everyday", copy: "你不必重新开始一天。用手边的几样东西，留下刚刚好的精神感，然后从容出门。" },
   { index: "03", title: "卡在一笔", label: "即时追问", image: "scene-black-woman-cutout.png", intent: "learn", copy: "你可以在最犹豫的一笔停下来。问清刷子、方向与用量，再让这一笔变得笃定。" },
   { index: "04", title: "留给自己", label: "自然化调整", image: "scene-latina-cutout.png", intent: "everyday", copy: "你保留心动的部分，也留出自己的呼吸。把灵感调成真正适合你日常的一版。" },
 ] as const;
@@ -1489,7 +1489,7 @@ export default function MirrorMateDemo() {
           {petOpen && (
             <section className="pet-dialogue" aria-label="MirrorMate 聊天记录">
               <header>
-                <div className="pet-mini" aria-hidden="true"><img src="/editorial/xiaozhuangban-teardrop-mirror-v2.png" draggable={false} alt="" /></div>
+                <div className="pet-mini" aria-hidden="true"><img src="/editorial/xiaozhuangban-teardrop-mirror-v3.png" draggable={false} alt="" /></div>
                 <div><b>MirrorMate 小妆伴</b><span>{voiceStatus === "listening" ? "正在陪你练妆" : voiceStatus === "connecting" ? "正在靠近镜子" : "随时准备陪你"}</span></div>
                 <button onClick={() => setPetOpen(false)} aria-label="收起聊天窗口">×</button>
               </header>
@@ -1507,7 +1507,7 @@ export default function MirrorMateDemo() {
             </section>
           )}
           <button ref={petToggleRef} className="pet-toggle" onPointerDown={startPetDrag} onClick={togglePet} aria-expanded={petOpen} aria-label="打开或拖动 MirrorMate 小妆伴">
-            <span className="pet-portrait" aria-hidden="true"><img src="/editorial/xiaozhuangban-teardrop-mirror-v2.png" draggable={false} alt="" /></span>
+            <span className="pet-portrait" aria-hidden="true"><img src="/editorial/xiaozhuangban-teardrop-mirror-v3.png" draggable={false} alt="" /></span>
             <span className="pet-caption">{voiceStatus === "listening" ? "陪你中" : voiceStatus === "connecting" ? "连线中" : "小妆伴"}</span>
           </button>
         </aside>
