@@ -1867,3 +1867,13 @@ button:not(:disabled):active { transform:translateY(0) scale(.985); transition-d
 .pet-portrait img{background:transparent!important;mix-blend-mode:normal}
 .pet-caption{position:relative;z-index:1}
 @media(max-width:700px){.mirror-pet{width:147px;height:164px}.pet-toggle{width:147px}.pet-portrait{width:141px;height:131px}}
+
+/* Keep the generated male editorial crop visually equal to the three existing
+   scene portraits; the source has intentional studio headroom. */
+.scene-2 .scene-person{width:118%;height:108%;object-fit:cover;object-position:center 56%;}
+
+/* Frosted, but comfortably readable over every page surface. */
+.pet-dialogue{background:rgba(250,247,244,.88);border-color:rgba(255,255,255,.86);box-shadow:0 20px 56px rgba(57,44,44,.22);backdrop-filter:blur(20px) saturate(.9);-webkit-backdrop-filter:blur(20px) saturate(.9)}
+.pet-dialogue header{background:rgba(255,255,255,.5)}
+.pet-chat-log .from-pet{background:rgba(255,255,255,.72)}
+.pet-composer{background:rgba(255,255,255,.68)}
