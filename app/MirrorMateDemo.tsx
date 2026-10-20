@@ -19,7 +19,6 @@ import {
   coachInstructions,
   knowledgeByZone,
   prepGuide,
-  realtimeCoachTools,
   searchTeachingKnowledge,
 } from "./coachKnowledge";
 import type { CoachSnapshot, FocusMode } from "./coachKnowledge";
@@ -721,14 +720,18 @@ export default function MirrorMateDemo() {
     initialize = true,
   ) {
     if (channel.readyState !== "open") return;
+    // WebRTC and WebSocket share the same Realtime model, but not the same
+    // session payload shape.  The WebRTC endpoint currently expects the flat
+    // input/output audio fields below.  Sending the WebSocket-only nested
+    // `audio` object lets the call connect, but leaves the model on its
+    // provider-default persona (which is why it introduced itself as Qwen).
     const session = initialize
       ? {
-          modalities: ["text", "audio"],
-          audio: {
-            input: { format: { type: "pcm", sample_rate: 16000 } },
-            output: { format: { type: "pcm", sample_rate: 24000 }, voice: "longanlingxin" },
-          },
+          input_audio_format: "pcm",
+          output_audio_format: "pcm",
+          smooth_output: false,
           input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
+          modalities: ["text", "audio"],
           turn_detection: {
             type: "semantic_vad",
             prefix_padding_ms: 500,
@@ -736,9 +739,6 @@ export default function MirrorMateDemo() {
             threshold: 0.35,
           },
           instructions: coachInstructions(snapshot),
-          tools: realtimeCoachTools,
-          temperature: 0.9,
-          max_tokens: 480,
         }
       : { instructions: coachInstructions(snapshot) };
     channel.send(
