@@ -1277,6 +1277,14 @@ export default function MirrorMateDemo() {
               <span><i className={meshStatus} />{meshStatus === "tracking" ? "已定位" : "准备定位"}</span>
               <small>面部数据仅在本设备处理</small>
             </div>
+            <button
+              type="button"
+              className={`mesh-toggle ${showMesh ? "active" : ""}`}
+              aria-pressed={showMesh}
+              onClick={() => setShowMesh((visible) => !visible)}
+            >
+              {showMesh ? "隐藏 478 点面部网格" : "显示 478 点面部网格"}
+            </button>
             <label className="intensity-control">
               <span>
                 妆感强度 <b>{intensity}%</b>
