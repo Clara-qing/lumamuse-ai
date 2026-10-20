@@ -854,21 +854,21 @@ export default function MirrorMateDemo() {
           };
           try { data = JSON.parse(event.data); } catch { return; }
           if (data.type === "session.created") {
-            // Do not release microphone audio yet. A voice segment arriving
-            // between session.created and session.updated is handled using
-            // Qwen's default persona, which is exactly the identity race we
-            // must prevent for the companion.
+            // Bailian WebRTC requires media to be restored *after*
+            // session.created.  Waiting for session.updated here can leave a
+            // perfectly valid session muted forever, because not every
+            // WebRTC session echoes that event on the browser data channel.
             if (realtimeConfigSentRef.current) return;
             realtimeConfigSentRef.current = true;
             realtimeChannelRef.current = eventChannel;
+            if (track) track.enabled = true;
+            sender?.replaceTrack(track ?? null).catch(() => {});
+            realtimeActiveRef.current = true;
+            setVoiceStatus("listening");
+            updateVoiceTranscript("已接通 MirrorMate 实时语音。小妆伴正在听，你可以直接说话。 ");
             sendRealtimeSessionUpdate(eventChannel, coachSnapshotRef.current ?? coachSnapshot);
           } else if (data.type === "session.updated") {
-            if (realtimeConfigSentRef.current && !realtimeActiveRef.current) {
-              if (track) track.enabled = true;
-              sender?.replaceTrack(track ?? null).catch(() => {});
-              realtimeActiveRef.current = true;
-              setVoiceStatus("listening");
-              updateVoiceTranscript("已接通 MirrorMate。它会从选妆陪你到完成，你可以随时开口或输入问题。 ");
+            if (realtimeConfigSentRef.current && realtimeActiveRef.current) {
               requestRealtimeWelcome(eventChannel);
             }
           } else if (realtimeActiveRef.current && data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
