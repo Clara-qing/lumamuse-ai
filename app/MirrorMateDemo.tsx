@@ -1475,7 +1475,7 @@ export default function MirrorMateDemo() {
           {petOpen && (
             <section className="pet-dialogue" aria-label="MirrorMate 聊天记录">
               <header>
-                <div className="pet-mini" aria-hidden="true"><img src="/editorial/xiaozhuangban-puff-v2.png" draggable={false} alt="" /></div>
+                <div className="pet-mini" aria-hidden="true"><img src="/editorial/xiaozhuangban-teardrop-mirror-v2.png" draggable={false} alt="" /></div>
                 <div><b>MirrorMate 小妆伴</b><span>{voiceStatus === "listening" ? "正在陪你练妆" : voiceStatus === "connecting" ? "正在靠近镜子" : "随时准备陪你"}</span></div>
                 <button onClick={() => setPetOpen(false)} aria-label="收起聊天窗口">×</button>
               </header>
@@ -1493,7 +1493,7 @@ export default function MirrorMateDemo() {
             </section>
           )}
           <button ref={petToggleRef} className="pet-toggle" onPointerDown={startPetDrag} onClick={togglePet} aria-expanded={petOpen} aria-label="打开或拖动 MirrorMate 小妆伴">
-            <span className="pet-portrait" aria-hidden="true"><img src="/editorial/xiaozhuangban-puff-v2.png" draggable={false} alt="" /></span>
+            <span className="pet-portrait" aria-hidden="true"><img src="/editorial/xiaozhuangban-teardrop-mirror-v2.png" draggable={false} alt="" /></span>
             <span className="pet-caption">{voiceStatus === "listening" ? "陪你中" : voiceStatus === "connecting" ? "连线中" : "小妆伴"}</span>
           </button>
         </aside>
