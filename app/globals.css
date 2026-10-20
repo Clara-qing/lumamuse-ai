@@ -1859,3 +1859,11 @@ button:not(:disabled):active { transform:translateY(0) scale(.985); transition-d
 .effect-compare-hold{position:absolute;z-index:5;right:15px;bottom:50px;border:1px solid rgba(255,255,255,.72);border-radius:999px;padding:7px 11px;background:rgba(48,40,41,.64);box-shadow:0 5px 15px rgba(24,20,20,.18);backdrop-filter:blur(10px);color:#fff;font:700 10px/1.1 inherit;letter-spacing:.02em;cursor:pointer;touch-action:none}.effect-compare-hold:active{transform:scale(.97);background:rgba(48,40,41,.82)}
 @keyframes pet-glass-in{from{opacity:0;transform:translateY(7px) scale(.98)}to{opacity:1;transform:none}}
 @media(max-width:700px){.mirror-pet{right:12px;bottom:12px;width:84px;height:94px}.pet-toggle{width:84px}.pet-portrait{width:80px;height:75px}.pet-dialogue{width:min(340px,calc(100vw - 20px))}.pet-chat-log{max-height:min(32svh,218px)}.effect-compare-hold{right:11px;bottom:48px;padding:7px 9px;font-size:9px}}
+
+/* The mascot PNG has an alpha channel: never let inherited button/image rules paint a card behind it. */
+.mirror-pet{width:112px;height:124px;background:transparent!important;box-shadow:none!important}
+.pet-toggle{width:112px;background:transparent!important;border:0!important;box-shadow:none!important;appearance:none}
+.pet-portrait{width:106px;height:98px;background:transparent!important;box-shadow:none!important;filter:drop-shadow(0 12px 10px rgba(55,37,36,.28))}
+.pet-portrait img{background:transparent!important;mix-blend-mode:normal}
+.pet-caption{position:relative;z-index:1}
+@media(max-width:700px){.mirror-pet{width:98px;height:110px}.pet-toggle{width:98px}.pet-portrait{width:94px;height:87px}}

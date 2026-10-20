@@ -347,12 +347,17 @@ export default function MirrorMateDemo() {
     }));
   const coachSnapshot = useMemo<CoachSnapshot>(
     () => ({
+      journeyStage: stage,
       lookName: activeLookName,
       userIntent: intent === "learn" ? "学会这个妆容" : intent === "replicate" ? "尽量复刻参考妆" : "调整成自然日常版",
       inspiration: prompt.trim() || "用户暂未补充文字偏好",
       referenceSummary: referenceAnalysis
         ? `${referenceAnalysis.temperature}、${referenceAnalysis.saturation}、${referenceAnalysis.contrast}；建议浓度 ${referenceAnalysis.suggestedIntensity}%`
         : reference ? "用户已上传参考图，尚未完成风格摘要" : "用户未上传参考图",
+      referenceLook: referenceAnalysis
+        ? `主色 ${referenceAnalysis.palette.join(" / ")}；妆效来源 ${referenceAnalysis.effectProfile.source === "reference-regions" ? "参考图分区提取" : "色板估计"}`
+        : "没有可用的参考图色彩解析",
+      teachingProtocol: "每个教学动作只说清目标、工具、用量、第一落点、方向/力度与停止条件；先给一个可执行动作，用户追问时再解释原理、错误与补救；不做颜值判断或医疗判断。",
       intensity,
       stepIndex: step,
       totalSteps: t.steps.length,
@@ -368,7 +373,7 @@ export default function MirrorMateDemo() {
       prepChecked,
       knowledge: knowledgeByZone[current.zone] ?? knowledgeByZone.base,
     }),
-    [activeLookName, current, focusMode, intensity, intent, meshStatus, prepChecked, prompt, reference, referenceAnalysis, skinProfile, step, t.steps.length, trackingQuality],
+    [activeLookName, current, focusMode, intensity, intent, meshStatus, prepChecked, prompt, reference, referenceAnalysis, skinProfile, stage, step, t.steps.length, trackingQuality],
   );
   const paletteStyle = useMemo(
     () => ({ "--makeup": palette[1] }) as React.CSSProperties,
@@ -402,8 +407,8 @@ export default function MirrorMateDemo() {
       setPetPosition((position) => {
         if (!position) return position;
         return {
-          left: Math.max(8, Math.min(window.innerWidth - 96, position.left)),
-          top: Math.max(8, Math.min(window.innerHeight - 112, position.top)),
+          left: Math.max(8, Math.min(window.innerWidth - 120, position.left)),
+          top: Math.max(8, Math.min(window.innerHeight - 134, position.top)),
         };
       });
       if (petOpen) requestAnimationFrame(placePetDialogue);
@@ -571,8 +576,8 @@ export default function MirrorMateDemo() {
       const dy = moveEvent.clientY - drag.startY;
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) drag.didDrag = true;
       setPetPosition({
-        left: Math.max(8, Math.min(window.innerWidth - 100, drag.left + dx)),
-        top: Math.max(8, Math.min(window.innerHeight - 112, drag.top + dy)),
+        left: Math.max(8, Math.min(window.innerWidth - 120, drag.left + dx)),
+        top: Math.max(8, Math.min(window.innerHeight - 134, drag.top + dy)),
       });
       if (petOpen) requestAnimationFrame(placePetDialogue);
     };
@@ -693,10 +698,11 @@ export default function MirrorMateDemo() {
   function requestRealtimeWelcome(channel: RTCDataChannel) {
     if (realtimeGreetingSentRef.current || channel.readyState !== "open") return;
     realtimeGreetingSentRef.current = true;
+    const snapshot = coachSnapshotRef.current ?? coachSnapshot;
     channel.send(JSON.stringify({
       event_id: `mirrormate_welcome_${Date.now()}`,
       type: "response.create",
-      response: { instructions: "请用一到两句自然、温暖的中文欢迎用户来到 MirrorMate。告诉她可以上传灵感图、描述想练的妆容，或直接说出顾虑；你会从选妆一直陪到完成。不要罗列功能、不要自我介绍成系统、不要用客服腔。" },
+      response: { instructions: `请用一到两句自然、温暖的中文以“小妆伴”身份欢迎用户。她本次目标是“${snapshot.userIntent}”，已知想法是“${snapshot.inspiration}”，当前处于 ${snapshot.journeyStage} 阶段。根据阶段给出一个最容易开始的下一步：上传/选妆阶段邀请她上传灵感或说一个担心；试妆阶段邀请她先看整体；跟练阶段直接陪她完成当前这一小步。不要罗列功能、不要自我介绍成系统、不要用客服腔。` },
     }));
   }
   function sendRealtimeSessionUpdate(
