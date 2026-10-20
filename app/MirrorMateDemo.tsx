@@ -326,6 +326,7 @@ export default function MirrorMateDemo() {
     realtimeChannelRef = useRef<RTCDataChannel | null>(null),
     realtimeAudioRef = useRef<HTMLAudioElement | null>(null),
     realtimeActiveRef = useRef(false),
+    realtimeConfigSentRef = useRef(false),
     realtimeGreetingSentRef = useRef(false),
     welcomeShownRef = useRef(false),
     petDragRef = useRef({ startX: 0, startY: 0, left: 0, top: 0, didDrag: false }),
@@ -602,6 +603,7 @@ export default function MirrorMateDemo() {
   }
   function stopVoiceCoach() {
     realtimeActiveRef.current = false;
+    realtimeConfigSentRef.current = false;
     realtimeGreetingSentRef.current = false;
     realtimeChannelRef.current?.close();
     realtimeChannelRef.current = null;
@@ -852,18 +854,24 @@ export default function MirrorMateDemo() {
           };
           try { data = JSON.parse(event.data); } catch { return; }
           if (data.type === "session.created") {
-            if (track) track.enabled = true;
-            sender?.replaceTrack(track ?? null).catch(() => {});
+            // Do not release microphone audio yet. A voice segment arriving
+            // between session.created and session.updated is handled using
+            // Qwen's default persona, which is exactly the identity race we
+            // must prevent for the companion.
+            if (realtimeConfigSentRef.current) return;
+            realtimeConfigSentRef.current = true;
             realtimeChannelRef.current = eventChannel;
             sendRealtimeSessionUpdate(eventChannel, coachSnapshotRef.current ?? coachSnapshot);
           } else if (data.type === "session.updated") {
-            if (!realtimeActiveRef.current) {
+            if (realtimeConfigSentRef.current && !realtimeActiveRef.current) {
+              if (track) track.enabled = true;
+              sender?.replaceTrack(track ?? null).catch(() => {});
               realtimeActiveRef.current = true;
               setVoiceStatus("listening");
               updateVoiceTranscript("已接通 MirrorMate。它会从选妆陪你到完成，你可以随时开口或输入问题。 ");
               requestRealtimeWelcome(eventChannel);
             }
-          } else if (data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
+          } else if (realtimeActiveRef.current && data.type === "conversation.item.input_audio_transcription.completed" && data.transcript) {
             updateVoiceTranscript(`你说：“${data.transcript}”`);
           } else if (
             data.type === "response.function_call_arguments.done" &&
@@ -872,7 +880,7 @@ export default function MirrorMateDemo() {
           ) {
             updateVoiceTranscript("我看一下这一小步。");
             answerRealtimeTool(eventChannel, data.call_id, data.name, data.arguments);
-          } else if (data.type === "response.audio_transcript.done" && data.transcript) {
+          } else if (realtimeActiveRef.current && data.type === "response.audio_transcript.done" && data.transcript) {
             updateVoiceTranscript(`MirrorMate：${data.transcript}`);
           } else if (data.type === "error") {
             setVoiceStatus("error");
